@@ -70,7 +70,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 
 // ---- задачи ----
 
-const taskCols = `id, industry, status, draft_text, fields, confirmed, rating, questions, ai_mode, created_at, published_at`
+const taskCols = `id, industry, status, draft_text, fields, confirmed, rating, questions, ai_mode, created_at, published_at, owner_contact`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -81,7 +81,7 @@ func scanTask(sc scanner) (model.Task, error) {
 		fields, rating, questions []byte
 		published                 sql.NullTime
 	)
-	if err := sc.Scan(&t.ID, &t.Industry, &status, &t.DraftText, &fields, &t.Confirmed, &rating, &questions, &aiMode, &t.CreatedAt, &published); err != nil {
+	if err := sc.Scan(&t.ID, &t.Industry, &status, &t.DraftText, &fields, &t.Confirmed, &rating, &questions, &aiMode, &t.CreatedAt, &published, &t.OwnerContact); err != nil {
 		return t, err
 	}
 	t.Status, t.AIMode = model.TaskStatus(status), model.AIMode(aiMode)
@@ -206,10 +206,10 @@ func (s *Store) CreateTask(ctx context.Context, t *model.Task) error {
 		return err
 	}
 	err = s.db.QueryRowContext(ctx, `INSERT INTO tasks
-		(industry, status, draft_text, fields, confirmed, score, rating, questions, ai_mode, published_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, created_at`,
+		(industry, status, draft_text, fields, confirmed, score, rating, questions, ai_mode, published_at, owner_contact)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, created_at`,
 		t.Industry, string(t.Status), t.DraftText, string(j.fields), t.Confirmed, t.Score, string(j.rating),
-		string(j.questions), string(t.AIMode), t.PublishedAt,
+		string(j.questions), string(t.AIMode), t.PublishedAt, t.OwnerContact,
 	).Scan(&t.ID, &t.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create task: %w", err)
@@ -218,6 +218,8 @@ func (s *Store) CreateTask(ctx context.Context, t *model.Task) error {
 }
 
 // UpdateTask сохраняет изменяемые поля задачи (fields, status, confirmed, rating, questions, ai_mode, published_at).
+// owner_contact здесь не пишется: его меняет только SetTaskOwner, иначе правка карточки, прочитанной до смены
+// контакта, откатила бы его.
 func (s *Store) UpdateTask(ctx context.Context, t *model.Task) error {
 	j, err := encodeTask(t)
 	if err != nil {
@@ -294,16 +296,23 @@ func (s *Store) GetTeam(ctx context.Context, id int) (model.Team, error) {
 // ---- отклики ----
 
 const proposalSelect = `SELECT p.id, p.task_id, p.team_id, tm.name, p.idea, p.plan, p.deadline, p.link,
-	p.status, p.stage_confirmed, p.created_at FROM proposals p JOIN teams tm ON tm.id = p.team_id`
+	p.status, p.stage_confirmed, p.created_at, p.accepted_at,
+	(SELECT count(*) FROM messages m WHERE m.proposal_id = p.id)
+	FROM proposals p JOIN teams tm ON tm.id = p.team_id`
 
 func scanProposal(sc scanner) (model.Proposal, error) {
 	var (
-		p      model.Proposal
-		status string
+		p        model.Proposal
+		status   string
+		accepted sql.NullTime
 	)
 	err := sc.Scan(&p.ID, &p.TaskID, &p.Team.ID, &p.Team.Name, &p.Idea, &p.Plan, &p.Deadline, &p.Link,
-		&status, &p.StageConfirmed, &p.CreatedAt)
+		&status, &p.StageConfirmed, &p.CreatedAt, &accepted, &p.MessagesCount)
 	p.Status = model.ProposalStatus(status)
+	if accepted.Valid {
+		at := accepted.Time
+		p.AcceptedAt = &at
+	}
 	return p, err
 }
 
@@ -342,8 +351,11 @@ func (s *Store) GetProposal(ctx context.Context, id int) (model.Proposal, error)
 	return p, nil
 }
 
+// UpdateProposalStatus меняет статус отклика; accepted_at ставится при переходе в accepted и сбрасывается при уходе из него.
 func (s *Store) UpdateProposalStatus(ctx context.Context, id int, status model.ProposalStatus) (model.Proposal, error) {
-	res, err := s.db.ExecContext(ctx, `UPDATE proposals SET status = $2 WHERE id = $1`, id, string(status))
+	res, err := s.db.ExecContext(ctx, `UPDATE proposals SET status = $2,
+		accepted_at = CASE WHEN $2 = 'accepted' THEN COALESCE(accepted_at, now()) END
+		WHERE id = $1`, id, string(status))
 	if err != nil {
 		return model.Proposal{}, fmt.Errorf("update proposal: %w", err)
 	}

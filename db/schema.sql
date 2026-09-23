@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 CREATE INDEX IF NOT EXISTS tasks_catalog_idx ON tasks (status, score DESC, published_at);
 
+-- Контакт заявителя (вход бизнеса тем же одноразовым кодом): нормализован как у команд; '' у seed-задач.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS owner_contact text NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS tasks_owner_idx ON tasks (lower(owner_contact)) WHERE owner_contact <> '';
+
 CREATE TABLE IF NOT EXISTS proposals (
     id              serial PRIMARY KEY,
     task_id         int         NOT NULL REFERENCES tasks (id),
@@ -46,6 +50,20 @@ CREATE TABLE IF NOT EXISTS proposals (
 );
 
 CREATE INDEX IF NOT EXISTS proposals_task_idx ON proposals (task_id);
+
+-- Двустороннее принятие: момент, когда команда подтвердила выбранный отклик (status = 'accepted').
+ALTER TABLE proposals ADD COLUMN IF NOT EXISTS accepted_at timestamptz NULL;
+
+-- Чат по отклику: команда отклика ↔ заявитель задачи.
+CREATE TABLE IF NOT EXISTS messages (
+    id          serial PRIMARY KEY,
+    proposal_id int         NOT NULL REFERENCES proposals (id),
+    author      text        NOT NULL CHECK (author IN ('team', 'business')),
+    text        text        NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS messages_proposal_idx ON messages (proposal_id, created_at, id);
 
 -- После загрузки seed с явными id последовательности выставляются на max(id)
 -- (см. internal/store/seed.go, функция resetSequences) — иначе следующий INSERT упадёт на дубликате PK.

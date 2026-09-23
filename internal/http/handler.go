@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +36,10 @@ type Repo interface {
 	CreateTeam(ctx context.Context, t *model.Team) error
 	SetTeamContact(ctx context.Context, id int, contact string) error
 	ListProposalsByTeam(ctx context.Context, teamID int) ([]model.Proposal, error)
+	ListTasksByOwner(ctx context.Context, contact string) ([]model.Task, error)
+	SetTaskOwner(ctx context.Context, id int, contact string) error
+	ListMessages(ctx context.Context, proposalID int) ([]model.Message, error)
+	AddMessage(ctx context.Context, proposalID int, author, text string) (model.Message, error)
 }
 
 var _ Repo = (*store.Store)(nil)
@@ -48,6 +53,8 @@ type server struct {
 	compute  RatingFunc
 	demoOTP  string
 	sessions *sessions
+	hub      *hub
+	origins  []string // OriginPatterns для WebSocket чата (WS_ORIGINS)
 }
 
 // NewHandler собирает роутер: /api/* + статика staticDir с SPA-fallback.
@@ -60,7 +67,8 @@ func NewHandler(repo Repo, aiClient ai.Client, compute RatingFunc, staticDir, de
 	if demoOTP == "" {
 		demoOTP = DefaultDemoOTP
 	}
-	s := &server{repo: repo, ai: aiClient, compute: compute, demoOTP: demoOTP, sessions: &sessions{m: map[string]int{}}}
+	s := &server{repo: repo, ai: aiClient, compute: compute, demoOTP: demoOTP, sessions: &sessions{m: map[string]session{}},
+		hub: newHub(), origins: wsOrigins(os.Getenv("WS_ORIGINS"))}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/health", s.health)
@@ -70,14 +78,25 @@ func NewHandler(repo Repo, aiClient ai.Client, compute RatingFunc, staticDir, de
 	mux.HandleFunc("POST /api/tasks/{id}/answers", s.answers)
 	mux.HandleFunc("PUT /api/tasks/{id}/fields", s.updateFields)
 	mux.HandleFunc("POST /api/tasks/{id}/confirm", s.confirm)
+	mux.HandleFunc("POST /api/tasks/{id}/owner", s.setOwner)
 	mux.HandleFunc("POST /api/tasks/{id}/proposals", s.createProposal)
 	mux.HandleFunc("POST /api/proposals/{id}/select", s.setProposalStatus(model.ProposalSelected))
 	mux.HandleFunc("POST /api/proposals/{id}/reject", s.setProposalStatus(model.ProposalRejected))
+	mux.HandleFunc("POST /api/proposals/{id}/hold", s.setProposalStatus(model.ProposalOnHold))
 	mux.HandleFunc("POST /api/proposals/{id}/confirm-stage", s.confirmStage)
+	mux.HandleFunc("POST /api/proposals/{id}/accept", s.teamDecision(model.ProposalAccepted))
+	mux.HandleFunc("POST /api/proposals/{id}/decline", s.teamDecision(model.ProposalDeclined))
+	mux.HandleFunc("GET /api/proposals/{id}/messages", s.listMessages)
+	mux.HandleFunc("POST /api/proposals/{id}/messages", s.postMessage)
+	mux.HandleFunc("GET /api/proposals/{id}/ws", s.chatWS)
 	mux.HandleFunc("POST /api/auth/request-code", s.requestCode)
 	mux.HandleFunc("POST /api/auth/verify", s.verify)
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
 	mux.HandleFunc("GET /api/me", s.me)
+	mux.HandleFunc("POST /api/auth/business/request-code", s.requestCode)
+	mux.HandleFunc("POST /api/auth/business/verify", s.verifyBusiness)
+	mux.HandleFunc("POST /api/auth/business/logout", s.logout)
+	mux.HandleFunc("GET /api/business/me", s.businessMe)
 	mux.HandleFunc("GET /api/teams", s.listTeams)
 	mux.HandleFunc("GET /api/teams/{id}/recommended", s.recommended)
 	mux.HandleFunc("GET /api/ai", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, s.ai.Info()) })
@@ -120,6 +139,20 @@ func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 		return false
 	}
 	return true
+}
+
+// publicTask — копия задачи для публичного ответа: owner_contact маскирован (полный — только в /api/business/me).
+func publicTask(t model.Task) model.Task {
+	t.OwnerContact = maskContact(t.OwnerContact)
+	return t
+}
+
+func publicTasks(ts []model.Task) []model.Task {
+	out := make([]model.Task, len(ts))
+	for i, t := range ts {
+		out[i] = publicTask(t)
+	}
+	return out
 }
 
 func pathID(w http.ResponseWriter, r *http.Request) (int, bool) {
@@ -168,16 +201,26 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	for _, l := range levelOrder {
 		levels = append(levels, levelOption{Key: l, Label: model.LevelLabels[l]})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks, "industries": industries, "levels": levels})
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": publicTasks(tasks), "industries": industries, "levels": levels})
 }
 
 func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		DraftText string `json:"draft_text"`
-		Industry  string `json:"industry"`
+		DraftText    string `json:"draft_text"`
+		Industry     string `json:"industry"`
+		OwnerContact string `json:"owner_contact"`
 	}
 	if !decode(w, r, &req) {
 		return
+	}
+	var owner string
+	if strings.TrimSpace(req.OwnerContact) != "" {
+		c, ok := normalizeContact(req.OwnerContact)
+		if !ok {
+			writeError(w, http.StatusBadRequest, badOwnerContactMsg)
+			return
+		}
+		owner = c
 	}
 	req.DraftText, req.Industry = strings.TrimSpace(req.DraftText), strings.TrimSpace(req.Industry)
 	if req.DraftText == "" {
@@ -205,12 +248,14 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 		Rating:    s.compute(fields, false),
 		Questions: qs,
 		AIMode:    s.ai.Mode(),
+
+		OwnerContact: owner,
 	}
 	if err := s.repo.CreateTask(r.Context(), &t); err != nil {
 		fail(w, err, "")
 		return
 	}
-	writeJSON(w, http.StatusCreated, t)
+	writeJSON(w, http.StatusCreated, publicTask(t))
 }
 
 // normalizeQuestions проставляет уникальные id (1..n), если AI их не дал, и чистит ответы.
@@ -241,7 +286,7 @@ func (s *server) getTask(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "задача не найдена")
 		return
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, publicTask(t))
 }
 
 // loadTask — общая часть мутаций задачи: id из пути + чтение.
@@ -270,7 +315,7 @@ func (s *server) saveEdited(w http.ResponseWriter, r *http.Request, t *model.Tas
 		fail(w, err, "задача не найдена")
 		return
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, publicTask(*t))
 }
 
 func (s *server) answers(w http.ResponseWriter, r *http.Request) {
@@ -373,7 +418,63 @@ func (s *server) confirm(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "задача не найдена")
 		return
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, publicTask(t))
+}
+
+const (
+	badOwnerContactMsg = "owner_contact: укажите email или телефон"
+	notOwnerMsg        = "решение принимает заявитель задачи: войдите по контакту, указанному в заявке"
+)
+
+// isTaskOwner — запрос с бизнес-токеном, чей контакт совпадает с owner_contact задачи.
+func (s *server) isTaskOwner(r *http.Request, t model.Task) bool {
+	c, ok := s.businessFromRequest(r)
+	return ok && t.OwnerContact != "" && strings.EqualFold(c, t.OwnerContact)
+}
+
+// setOwner задаёт контакт заявителя: если его ещё нет — любой, иначе только бизнес с текущим контактом.
+func (s *server) setOwner(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.loadTask(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		OwnerContact string `json:"owner_contact"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	c, ok := normalizeContact(req.OwnerContact)
+	if !ok {
+		writeError(w, http.StatusBadRequest, badOwnerContactMsg)
+		return
+	}
+	// ponytail: проверка и запись не атомарны — два анонимных запроса на задачу без контакта: побеждает последний
+	if t.OwnerContact != "" && !s.isTaskOwner(r, t) {
+		writeError(w, http.StatusForbidden, "контакт заявителя уже задан: изменить его может только заявитель, вошедший по нему")
+		return
+	}
+	if err := s.repo.SetTaskOwner(r.Context(), t.ID, c); err != nil {
+		fail(w, err, "задача не найдена")
+		return
+	}
+	t.OwnerContact = c
+	writeJSON(w, http.StatusOK, publicTask(t))
+}
+
+// authorizeDecision: решения по откликам (select/reject/confirm-stage) у задачи с owner_contact
+// принимает только её заявитель; задачи без контакта (seed) открыты, как раньше.
+func (s *server) authorizeDecision(w http.ResponseWriter, r *http.Request, taskID int) bool {
+	t, err := s.repo.GetTask(r.Context(), taskID)
+	if err != nil {
+		fail(w, err, "задача отклика не найдена")
+		return false
+	}
+	if t.OwnerContact == "" || s.isTaskOwner(r, t) {
+		return true
+	}
+	writeError(w, http.StatusForbidden, notOwnerMsg)
+	return false
 }
 
 // createProposal: команда берётся из токена; team_id в теле игнорируется.
@@ -450,8 +551,50 @@ func (s *server) setProposalStatus(status model.ProposalStatus) http.HandlerFunc
 		if !ok {
 			return
 		}
-		p, err := s.repo.UpdateProposalStatus(r.Context(), id, status)
+		p, err := s.repo.GetProposal(r.Context(), id)
 		if err != nil {
+			fail(w, err, "отклик не найден")
+			return
+		}
+		if !s.authorizeDecision(w, r, p.TaskID) {
+			return
+		}
+		p, err = s.repo.UpdateProposalStatus(r.Context(), id, status)
+		if err != nil {
+			fail(w, err, "отклик не найден")
+			return
+		}
+		writeJSON(w, http.StatusOK, p)
+	}
+}
+
+// teamDecision — ответ команды на выбор бизнеса: accept / decline, только команда отклика и только из selected.
+func (s *server) teamDecision(status model.ProposalStatus) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := pathID(w, r)
+		if !ok {
+			return
+		}
+		team, ok := s.teamFromRequest(r)
+		if !ok {
+			unauthorized(w)
+			return
+		}
+		p, err := s.repo.GetProposal(r.Context(), id)
+		if err != nil {
+			fail(w, err, "отклик не найден")
+			return
+		}
+		if p.Team.ID != team.ID {
+			writeError(w, http.StatusForbidden, "принять или отклонить выбор может только команда этого отклика")
+			return
+		}
+		if p.Status != model.ProposalSelected {
+			writeError(w, http.StatusBadRequest, "ответить можно только на отклик, который бизнес выбрал (status selected)")
+			return
+		}
+		// ponytail: проверка статуса и запись не атомарны; при гонке с решением бизнеса побеждает последний
+		if p, err = s.repo.UpdateProposalStatus(r.Context(), id, status); err != nil {
 			fail(w, err, "отклик не найден")
 			return
 		}
@@ -469,8 +612,11 @@ func (s *server) confirmStage(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "отклик не найден")
 		return
 	}
-	if p.Status != model.ProposalSelected {
-		writeError(w, http.StatusBadRequest, "этап можно подтвердить только у выбранной команды")
+	if !s.authorizeDecision(w, r, p.TaskID) {
+		return
+	}
+	if p.Status != model.ProposalAccepted {
+		writeError(w, http.StatusBadRequest, "этап можно подтвердить только после того, как команда приняла проект")
 		return
 	}
 	if p, err = s.repo.ConfirmStage(r.Context(), id); err != nil {
@@ -507,7 +653,7 @@ func (s *server) recommended(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "")
 		return
 	}
-	writeJSON(w, http.StatusOK, recommend(team, tasks, 5))
+	writeJSON(w, http.StatusOK, publicTasks(recommend(team, tasks, 5)))
 }
 
 // ---- логирование ----

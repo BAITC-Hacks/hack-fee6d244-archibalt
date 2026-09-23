@@ -18,12 +18,18 @@ import (
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/store"
 )
 
+type msgRow struct {
+	proposalID int
+	model.Message
+}
+
 // memRepo — map-реализация Repo для тестов хендлеров без Postgres.
 type memRepo struct {
 	mu        sync.Mutex
 	tasks     map[int]model.Task
 	teams     map[int]model.Team
 	proposals map[int]model.Proposal
+	messages  []msgRow
 	nextTask  int
 	nextProp  int
 	nextTeam  int
@@ -96,6 +102,7 @@ func (m *memRepo) UpdateTask(_ context.Context, t *model.Task) error {
 	}
 	cp := *t
 	cp.Fields = t.Fields.Full()
+	cp.OwnerContact = m.tasks[t.ID].OwnerContact // как в store: owner_contact меняет только SetTaskOwner
 	m.tasks[t.ID] = cp
 	return nil
 }
@@ -151,6 +158,12 @@ func (m *memRepo) UpdateProposalStatus(_ context.Context, id int, st model.Propo
 		return p, store.ErrNotFound
 	}
 	p.Status = st
+	if st != model.ProposalAccepted {
+		p.AcceptedAt = nil
+	} else if p.AcceptedAt == nil {
+		now := time.Now()
+		p.AcceptedAt = &now
+	}
 	m.proposals[id] = p
 	return p, nil
 }
@@ -231,6 +244,65 @@ func (m *memRepo) ListProposalsByTeam(_ context.Context, teamID int) ([]model.Pr
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
 	return out, nil
+}
+
+func (m *memRepo) ListTasksByOwner(_ context.Context, contact string) ([]model.Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []model.Task{}
+	for _, t := range m.tasks {
+		if t.OwnerContact == "" || !strings.EqualFold(t.OwnerContact, strings.TrimSpace(contact)) {
+			continue
+		}
+		t.Proposals = []model.Proposal{}
+		for _, p := range m.proposals {
+			if p.TaskID == t.ID {
+				t.Proposals = append(t.Proposals, p)
+			}
+		}
+		sort.Slice(t.Proposals, func(i, j int) bool { return t.Proposals[i].ID < t.Proposals[j].ID })
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
+	return out, nil
+}
+
+func (m *memRepo) SetTaskOwner(_ context.Context, id int, contact string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tasks[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	t.OwnerContact = contact
+	m.tasks[id] = t
+	return nil
+}
+
+func (m *memRepo) ListMessages(_ context.Context, proposalID int) ([]model.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []model.Message{}
+	for _, r := range m.messages { // добавляются по времени — порядок уже по created_at
+		if r.proposalID == proposalID {
+			out = append(out, r.Message)
+		}
+	}
+	return out, nil
+}
+
+func (m *memRepo) AddMessage(_ context.Context, proposalID int, author, text string) (model.Message, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.proposals[proposalID]
+	if !ok {
+		return model.Message{}, store.ErrNotFound
+	}
+	msg := model.Message{ID: len(m.messages) + 1, Author: author, Text: text, CreatedAt: time.Now()}
+	m.messages = append(m.messages, msgRow{proposalID, msg})
+	p.MessagesCount++
+	m.proposals[proposalID] = p
+	return msg, nil
 }
 
 // fakeRating: 10 баллов за каждое непустое поле.
@@ -366,6 +438,8 @@ func TestFlow(t *testing.T) {
 	if prop.Status != model.ProposalSelected {
 		t.Fatalf("select: %+v", prop)
 	}
+	c.do("POST", ppath+"/confirm-stage", nil, 400, nil) // выбрана, но команда ещё не приняла проект
+	c.doAuth(tok, "POST", ppath+"/accept", nil, 200, &prop)
 	c.do("POST", ppath+"/confirm-stage", nil, 200, &prop)
 	c.do("POST", ppath+"/confirm-stage", nil, 200, &prop) // идемпотентно
 	if !prop.StageConfirmed || repo.teams[1].Points != store.StagePoints {

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -16,30 +17,42 @@ import (
 // DefaultDemoOTP — код входа в демо-режиме, если DEMO_OTP не задан.
 const DefaultDemoOTP = "000000"
 
-// sessions — токен → id команды.
+// Роли сессии: вход команды и вход бизнеса (заявителя задачи) одним и тем же одноразовым кодом.
+const (
+	kindTeam     = "team"
+	kindBusiness = "business"
+)
+
+type session struct {
+	kind    string // kindTeam | kindBusiness
+	teamID  int    // для kindTeam
+	contact string // для kindBusiness — нормализованный контакт заявителя
+}
+
+// sessions — токен → сессия.
 // ponytail: сессии в памяти, перезапуск разлогинивает; при необходимости — таблица sessions
 type sessions struct {
 	mu sync.RWMutex
-	m  map[string]int
+	m  map[string]session
 }
 
-func (ss *sessions) create(teamID int) (string, error) {
+func (ss *sessions) create(sess session) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
 	tok := hex.EncodeToString(b)
 	ss.mu.Lock()
-	ss.m[tok] = teamID
+	ss.m[tok] = sess
 	ss.mu.Unlock()
 	return tok, nil
 }
 
-func (ss *sessions) get(tok string) (int, bool) {
+func (ss *sessions) get(tok string) (session, bool) {
 	ss.mu.RLock()
 	defer ss.mu.RUnlock()
-	id, ok := ss.m[tok]
-	return id, ok
+	sess, ok := ss.m[tok]
+	return sess, ok
 }
 
 func (ss *sessions) remove(tok string) {
@@ -58,15 +71,19 @@ func bearerToken(r *http.Request) string {
 
 // teamFromRequest — команда по заголовку Authorization: Bearer <token>.
 func (s *server) teamFromRequest(r *http.Request) (model.Team, bool) {
-	tok := bearerToken(r)
+	return s.teamFromToken(r.Context(), bearerToken(r))
+}
+
+// teamFromToken — команда по токену сессии kind=team.
+func (s *server) teamFromToken(ctx context.Context, tok string) (model.Team, bool) {
 	if tok == "" {
 		return model.Team{}, false
 	}
-	id, ok := s.sessions.get(tok)
-	if !ok {
+	sess, ok := s.sessions.get(tok)
+	if !ok || sess.kind != kindTeam {
 		return model.Team{}, false
 	}
-	t, err := s.repo.GetTeam(r.Context(), id)
+	t, err := s.repo.GetTeam(ctx, sess.teamID)
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
 			slog.Error("team from token", "err", err)
@@ -74,6 +91,23 @@ func (s *server) teamFromRequest(r *http.Request) (model.Team, bool) {
 		return model.Team{}, false
 	}
 	return t, true
+}
+
+// businessFromRequest — контакт заявителя по заголовку Authorization: Bearer <token> бизнес-сессии.
+func (s *server) businessFromRequest(r *http.Request) (string, bool) {
+	return s.businessFromToken(bearerToken(r))
+}
+
+// businessFromToken — контакт заявителя по токену сессии kind=business.
+func (s *server) businessFromToken(tok string) (string, bool) {
+	if tok == "" {
+		return "", false
+	}
+	sess, ok := s.sessions.get(tok)
+	if !ok || sess.kind != kindBusiness {
+		return "", false
+	}
+	return sess.contact, true
 }
 
 func unauthorized(w http.ResponseWriter) {
@@ -112,13 +146,20 @@ func normalizeContact(raw string) (string, bool) {
 	return digits, true
 }
 
-// maskContact скрывает середину контакта для логов.
+// maskContact скрывает середину контакта для логов и публичных ответов (owner_contact задачи):
+// «o***@mail.kz», «+7701***0099».
 func maskContact(c string) string {
-	if at := strings.Index(c, "@"); at >= 0 {
-		return c[:min(2, at)] + "***" + c[at:]
+	if c == "" {
+		return ""
 	}
-	if len(c) <= 4 {
+	if at := strings.Index(c, "@"); at >= 0 {
+		return c[:min(1, at)] + "***" + c[at:]
+	}
+	switch {
+	case len(c) <= 4:
 		return "***"
+	case len(c) >= 11:
+		return c[:5] + "***" + c[len(c)-4:]
 	}
 	return c[:2] + "***" + c[len(c)-4:]
 }
@@ -165,7 +206,7 @@ func (s *server) verify(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "")
 		return
 	}
-	tok, err := s.sessions.create(team.ID)
+	tok, err := s.sessions.create(session{kind: kindTeam, teamID: team.ID})
 	if err != nil {
 		fail(w, err, "")
 		return
@@ -265,4 +306,45 @@ func (s *server) me(w http.ResponseWriter, r *http.Request) {
 		out = append(out, MyProposal{Proposal: p, Task: mt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"team": team, "proposals": out})
+}
+
+// verifyBusiness — вход заявителя: тот же код, ничего не создаёт; задачи находятся по owner_contact.
+func (s *server) verifyBusiness(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Contact string `json:"contact"`
+		Code    string `json:"code"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	contact, ok := normalizeContact(req.Contact)
+	if !ok {
+		writeError(w, http.StatusBadRequest, badContactMsg)
+		return
+	}
+	if strings.TrimSpace(req.Code) != s.demoOTP {
+		writeError(w, http.StatusUnauthorized, "неверный код")
+		return
+	}
+	tok, err := s.sessions.create(session{kind: kindBusiness, contact: contact})
+	if err != nil {
+		fail(w, err, "")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"token": tok, "contact": contact})
+}
+
+// businessMe — задачи заявителя с полным owner_contact и откликами («Мои задачи»).
+func (s *server) businessMe(w http.ResponseWriter, r *http.Request) {
+	contact, ok := s.businessFromRequest(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "нужен вход бизнеса")
+		return
+	}
+	tasks, err := s.repo.ListTasksByOwner(r.Context(), contact)
+	if err != nil {
+		fail(w, err, "")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"contact": contact, "tasks": tasks})
 }

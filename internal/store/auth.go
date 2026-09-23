@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/model"
 )
 
@@ -76,4 +78,94 @@ func (s *Store) ListProposalsByTeam(ctx context.Context, teamID int) ([]model.Pr
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// ListTasksByOwner — задачи заявителя с этим контактом (любого статуса, новые сверху), каждая с откликами.
+func (s *Store) ListTasksByOwner(ctx context.Context, contact string) ([]model.Task, error) {
+	contact = strings.TrimSpace(contact)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+taskCols+` FROM tasks
+		WHERE owner_contact <> '' AND lower(owner_contact) = lower($1) ORDER BY created_at DESC, id DESC`, contact)
+	if err != nil {
+		return nil, fmt.Errorf("list owner tasks: %w", err)
+	}
+	defer rows.Close()
+	tasks := []model.Task{}
+	idx := map[int]int{}
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		t.Proposals = []model.Proposal{}
+		idx[t.ID] = len(tasks)
+		tasks = append(tasks, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(tasks) == 0 {
+		return tasks, nil
+	}
+	prows, err := s.db.QueryContext(ctx, proposalSelect+` JOIN tasks t ON t.id = p.task_id
+		WHERE t.owner_contact <> '' AND lower(t.owner_contact) = lower($1) ORDER BY p.created_at, p.id`, contact)
+	if err != nil {
+		return nil, fmt.Errorf("list owner proposals: %w", err)
+	}
+	defer prows.Close()
+	for prows.Next() {
+		p, err := scanProposal(prows)
+		if err != nil {
+			return nil, err
+		}
+		if i, ok := idx[p.TaskID]; ok { // задача могла появиться между запросами — её отклики пропускаем
+			tasks[i].Proposals = append(tasks[i].Proposals, p)
+		}
+	}
+	return tasks, prows.Err()
+}
+
+// SetTaskOwner задаёт контакт заявителя задачи (права проверяет хендлер).
+func (s *Store) SetTaskOwner(ctx context.Context, id int, contact string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE tasks SET owner_contact = $2 WHERE id = $1`, id, contact)
+	if err != nil {
+		return fmt.Errorf("set task owner: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ListMessages — чат отклика по времени (старые сверху).
+func (s *Store) ListMessages(ctx context.Context, proposalID int) ([]model.Message, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, author, text, created_at FROM messages
+		WHERE proposal_id = $1 ORDER BY created_at, id`, proposalID)
+	if err != nil {
+		return nil, fmt.Errorf("list messages: %w", err)
+	}
+	defer rows.Close()
+	out := []model.Message{}
+	for rows.Next() {
+		var m model.Message
+		if err := rows.Scan(&m.ID, &m.Author, &m.Text, &m.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// AddMessage сохраняет сообщение чата (author: model.AuthorTeam | model.AuthorBusiness); нет отклика → ErrNotFound.
+func (s *Store) AddMessage(ctx context.Context, proposalID int, author, text string) (model.Message, error) {
+	m := model.Message{Author: author, Text: text}
+	err := s.db.QueryRowContext(ctx, `INSERT INTO messages (proposal_id, author, text) VALUES ($1, $2, $3)
+		RETURNING id, created_at`, proposalID, author, text).Scan(&m.ID, &m.CreatedAt)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			return m, ErrNotFound
+		}
+		return m, fmt.Errorf("add message: %w", err)
+	}
+	return m, nil
 }

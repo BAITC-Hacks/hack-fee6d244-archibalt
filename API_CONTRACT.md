@@ -8,8 +8,8 @@ Dev: бэкенд `go run ./cmd/server` на `:8080`; фронт `npm run dev` �
 ## Общие правила
 
 - JSON, UTF-8. Даты ISO-8601 строкой. Ошибка: `{ "error": "текст" }` с 400 (валидация) / 404 / 502 (AI недоступен и mock не сработал — не должно случаться).
-- Режим «Я бизнес / Я команда» — только на фронте (localStorage `mode`), бэкенд роли не проверяет (ТЗ §7: сложная ролевая модель не нужна).
-- Все запросы синхронные, без polling. AI-вызовы могут занимать до ~10 с — фронт показывает спиннер.
+- Режим «Я бизнес / Я команда» — на фронте (localStorage `mode`); вход обеих ролей по одноразовому коду (разделы ниже); задачи без контакта заявителя открыты для решений (ТЗ §7: сложная ролевая модель не нужна).
+- Все запросы синхронные; чат — по WebSocket (см. раздел «WebSocket чата»). AI-вызовы могут занимать до ~10 с — фронт показывает спиннер.
 
 ## Объекты
 
@@ -36,7 +36,8 @@ interface Task {
 interface Proposal {
   id: number; task_id: number; team: { id: number; name: string };
   idea: string; plan: string; deadline: string; link: string;
-  status: "new" | "selected" | "rejected"; stage_confirmed: boolean; created_at: string;
+  status: "new" | "selected" | "accepted" | "declined" | "rejected" | "on_hold"; stage_confirmed: boolean; created_at: string;
+  accepted_at: string | null; messages_count: number;
 }
 interface Team { id: number; name: string; skills: string[]; interests: string[]; tech: string[]; points: number; }
 ```
@@ -148,3 +149,22 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 | POST `/api/proposals/{id}/messages` | `{ text }` | `Message` | автор определяется токеном: team → "team"; business → "business"; без токена на задаче без контакта → "business" (демо) |
 
 Чат без realtime: фронт обновляет список при открытии и по кнопке/таймеру 5 с. В `Proposal` добавляется `messages_count: number` и `accepted_at: string|null`. В `/api/me` и `/api/business/me` отклики приходят с этими полями.
+
+## WebSocket чата
+
+`GET /api/proposals/{id}/ws?token=<team_token | business_token>` — апгрейд до WebSocket. Права те же, что у `GET /api/proposals/{id}/messages`: команда отклика → автор `team`; заявитель задачи (бизнес-токен с её `owner_contact`) → `business`; у задачи без контакта — любой бизнес-токен или запрос без токена → `business` (демо). Отказ — обычный JSON-ответ **до** апгрейда: 401 (нет токена у задачи с контактом), 403 (чужая команда / чужой бизнес), 404 (нет отклика). Токен можно передать и заголовком `Authorization: Bearer`, но браузерный WebSocket заголовки не шлёт — поэтому `?token=`.
+
+Origin: разрешён хост самого сервера и шаблоны из `WS_ORIGINS` (через запятую, `path.Match` по `host:port`), по умолчанию `localhost:*,127.0.0.1:*`; чужой Origin → 403.
+
+Кадры — текстовые JSON:
+
+| Направление | Кадр | Когда |
+|---|---|---|
+| сервер → клиент | `{"type":"history","messages":[Message…]}` | сразу после подключения, старые сверху |
+| клиент → сервер | `{"type":"message","text":"…"}` | отправить сообщение: trim, непустое, ≤ 2000 символов; автор — по токену соединения |
+| сервер → все подписчики отклика | `{"type":"message","message":{id, author, text, created_at}}` | новое сообщение из WS **или** из `POST /api/proposals/{id}/messages` (отправитель тоже получает) |
+| сервер → клиент | `{"type":"ping"}` | каждые 30 с; клиент может ответить `{"type":"pong"}` |
+| клиент → сервер | `{"type":"ping"}` | сервер отвечает `{"type":"pong"}` |
+| сервер → клиент | `{"type":"error","error":"…"}` | невалидный JSON, пустой/длинный текст, неизвестный `type`; соединение не рвётся |
+
+Сообщение, пришедшее в момент подключения, может оказаться и в `history`, и отдельным `message` — клиент дедуплицирует по `id`. Клиент, не успевающий читать (очередь 32 кадра), отключается; переподключение снова присылает `history`. REST `GET/POST …/messages` остаётся для первоначальной загрузки и как запасной путь.

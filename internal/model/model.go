@@ -110,14 +110,22 @@ type Task struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	PublishedAt *time.Time `json:"published_at"`
 	Proposals   []Proposal `json:"proposals,omitempty"`
+	// OwnerContact — нормализованный email/телефон заявителя для входа бизнеса; пусто у seed-задач.
+	// В публичных ответах маскирован, полный — только в GET /api/business/me.
+	OwnerContact string `json:"owner_contact"`
 }
 
 type ProposalStatus string
 
+// Статусы отклика: new → selected (бизнес выбрал) → accepted (команда подтвердила) | declined (команда отказалась);
+// rejected (бизнес отклонил), on_hold (бизнес отложил).
 const (
 	ProposalNew      ProposalStatus = "new"
 	ProposalSelected ProposalStatus = "selected"
+	ProposalAccepted ProposalStatus = "accepted"
+	ProposalDeclined ProposalStatus = "declined"
 	ProposalRejected ProposalStatus = "rejected"
+	ProposalOnHold   ProposalStatus = "on_hold"
 )
 
 type TeamRef struct {
@@ -136,6 +144,22 @@ type Proposal struct {
 	Status         ProposalStatus `json:"status"`
 	StageConfirmed bool           `json:"stage_confirmed"`
 	CreatedAt      time.Time      `json:"created_at"`
+	AcceptedAt     *time.Time     `json:"accepted_at"`    // когда команда приняла проект (status accepted)
+	MessagesCount  int            `json:"messages_count"` // сообщений в чате отклика
+}
+
+// Авторы сообщений чата отклика.
+const (
+	AuthorTeam     = "team"
+	AuthorBusiness = "business"
+)
+
+// Message — сообщение чата по отклику (команда ↔ заявитель).
+type Message struct {
+	ID        int       `json:"id"`
+	Author    string    `json:"author"` // AuthorTeam | AuthorBusiness
+	Text      string    `json:"text"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Team struct {

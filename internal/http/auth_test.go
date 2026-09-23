@@ -135,3 +135,138 @@ func TestAuth(t *testing.T) {
 	c.doAuth(v2.Token, "GET", "/api/me", nil, 200, nil) // другие сессии той же команды живы
 	c.do("POST", "/api/auth/logout", nil, 200, nil)     // без токена тоже 200
 }
+
+func TestMaskContact(t *testing.T) {
+	for in, want := range map[string]string{
+		"owner@mail.kz": "o***@mail.kz",
+		"+77010000099":  "+7701***0099",
+		"7011234567":    "70***4567",
+		"":              "",
+	} {
+		if got := maskContact(in); got != want {
+			t.Errorf("maskContact(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestBusinessOwner(t *testing.T) {
+	repo := newMemRepo()
+	c := testClient{t, NewHandler(repo, fakeAI{}, fakeRating, t.TempDir(), "")}
+	var errResp struct{ Error string }
+
+	// неверный контакт → 400
+	c.do("POST", "/api/tasks", map[string]string{"draft_text": "Нужен бот", "industry": "IT", "owner_contact": "мусор"}, 400, &errResp)
+	if !strings.Contains(errResp.Error, "owner_contact") {
+		t.Fatalf("400 owner_contact: %q", errResp.Error)
+	}
+
+	// создание с контактом → в ответе маскирован
+	var task model.Task
+	c.do("POST", "/api/tasks", map[string]string{"draft_text": "Нужен бот для заявок", "industry": "IT", "owner_contact": " Owner@Mail.KZ "}, 201, &task)
+	if task.OwnerContact != "o***@mail.kz" || repo.tasks[task.ID].OwnerContact != "owner@mail.kz" {
+		t.Fatalf("owner_contact: ответ %q, хранение %q", task.OwnerContact, repo.tasks[task.ID].OwnerContact)
+	}
+	path := fmt.Sprintf("/api/tasks/%d", task.ID)
+	c.do("PUT", path+"/fields", map[string]any{"fields": map[string]string{"title": "Бот"}}, 200, &task) // дополнять может любой
+	c.do("POST", path+"/confirm", nil, 200, &task)
+	if task.OwnerContact != "o***@mail.kz" || repo.tasks[task.ID].OwnerContact != "owner@mail.kz" {
+		t.Fatalf("после правки контакт должен сохраниться маскированным: %q", task.OwnerContact)
+	}
+	var cat struct{ Tasks []model.Task }
+	c.do("GET", "/api/tasks", nil, 200, &cat)
+	if len(cat.Tasks) != 1 || cat.Tasks[0].OwnerContact != "o***@mail.kz" {
+		t.Fatalf("каталог должен маскировать контакт: %+v", cat.Tasks)
+	}
+
+	// отклик команды
+	var team struct{ Token string }
+	c.do("POST", "/api/auth/verify", map[string]string{"contact": "team@example.com", "code": "000000"}, 200, &team)
+	var prop model.Proposal
+	c.doAuth(team.Token, "POST", path+"/proposals", map[string]any{"idea": "Бот", "plan": "2 спринта", "deadline": "3 недели", "link": "https://example.com"}, 201, &prop)
+	ppath := fmt.Sprintf("/api/proposals/%d", prop.ID)
+
+	// вход бизнеса
+	c.do("POST", "/api/auth/business/request-code", map[string]string{"contact": "мусор"}, 400, nil)
+	var rc struct{ Hint string }
+	c.do("POST", "/api/auth/business/request-code", map[string]string{"contact": "owner@mail.kz"}, 200, &rc)
+	if !strings.Contains(rc.Hint, "000000") {
+		t.Fatalf("hint: %q", rc.Hint)
+	}
+	c.do("POST", "/api/auth/business/verify", map[string]string{"contact": "owner@mail.kz", "code": "111111"}, 401, nil)
+	teamsBefore := len(repo.teams)
+	type bizLogin struct{ Token, Contact string }
+	var own, other bizLogin
+	c.do("POST", "/api/auth/business/verify", map[string]string{"contact": "OWNER@mail.kz", "code": "000000"}, 200, &own)
+	c.do("POST", "/api/auth/business/verify", map[string]string{"contact": "+7 701 000 00 99", "code": "000000"}, 200, &other)
+	if own.Token == "" || own.Contact != "owner@mail.kz" || other.Contact != "+77010000099" || len(repo.teams) != teamsBefore {
+		t.Fatalf("business verify: %+v %+v, команд %d→%d", own, other, teamsBefore, len(repo.teams))
+	}
+
+	// /api/business/me: полный контакт и отклики
+	c.do("GET", "/api/business/me", nil, 401, nil)
+	c.doAuth(team.Token, "GET", "/api/business/me", nil, 401, nil) // токен команды не даёт вход бизнеса
+	var me struct {
+		Contact string
+		Tasks   []model.Task
+	}
+	c.doAuth(own.Token, "GET", "/api/business/me", nil, 200, &me)
+	if me.Contact != "owner@mail.kz" || len(me.Tasks) != 1 || me.Tasks[0].ID != task.ID || me.Tasks[0].OwnerContact != "owner@mail.kz" ||
+		len(me.Tasks[0].Proposals) != 1 || me.Tasks[0].Proposals[0].ID != prop.ID {
+		t.Fatalf("business me: %+v", me)
+	}
+	c.doAuth(other.Token, "GET", "/api/business/me", nil, 200, &me)
+	if len(me.Tasks) != 0 {
+		t.Fatalf("чужой бизнес не должен видеть задачу: %+v", me.Tasks)
+	}
+	c.doAuth(own.Token, "GET", "/api/me", nil, 401, nil) // бизнес-токен не даёт вход команды
+
+	// решения по откликам задачи с контактом — только её заявитель
+	c.do("POST", ppath+"/select", nil, 403, &errResp)
+	if errResp.Error != notOwnerMsg {
+		t.Fatalf("403: %q", errResp.Error)
+	}
+	c.doAuth(other.Token, "POST", ppath+"/select", nil, 403, nil)
+	c.doAuth(team.Token, "POST", ppath+"/select", nil, 403, nil)
+	c.do("POST", ppath+"/reject", nil, 403, nil)
+	c.doAuth(own.Token, "POST", ppath+"/select", nil, 200, &prop)
+	if prop.Status != model.ProposalSelected {
+		t.Fatalf("select владельцем: %+v", prop)
+	}
+	c.doAuth(team.Token, "POST", ppath+"/accept", nil, 200, &prop)
+	c.do("POST", ppath+"/confirm-stage", nil, 403, nil)
+	c.doAuth(own.Token, "POST", ppath+"/confirm-stage", nil, 200, &prop)
+
+	// business logout
+	c.doAuth(own.Token, "POST", "/api/auth/business/logout", nil, 200, nil)
+	c.doAuth(own.Token, "GET", "/api/business/me", nil, 401, nil)
+	c.doAuth(own.Token, "POST", ppath+"/reject", nil, 403, nil)
+
+	// seed-задача без контакта: решения открыты (обратная совместимость)
+	seed := model.Task{Industry: "IT", Status: model.StatusPublished, Fields: model.Fields{}.Full()}
+	if err := repo.CreateTask(t.Context(), &seed); err != nil {
+		t.Fatal(err)
+	}
+	var sp model.Proposal
+	c.doAuth(team.Token, "POST", fmt.Sprintf("/api/tasks/%d/proposals", seed.ID), map[string]any{"idea": "i", "plan": "p", "deadline": "d", "link": "https://x.kz"}, 201, &sp)
+	c.do("POST", fmt.Sprintf("/api/proposals/%d/select", sp.ID), nil, 200, &sp)
+	if sp.Status != model.ProposalSelected {
+		t.Fatalf("select seed-задачи: %+v", sp)
+	}
+
+	// POST /owner: без контакта — любой; затем только владелец
+	opath := fmt.Sprintf("/api/tasks/%d/owner", seed.ID)
+	c.do("POST", opath, map[string]string{"owner_contact": "bad"}, 400, nil)
+	var owned model.Task
+	c.do("POST", opath, map[string]string{"owner_contact": "8 701 000 00 99"}, 200, &owned)
+	if owned.OwnerContact != "+7701***0099" || repo.tasks[seed.ID].OwnerContact != "+77010000099" {
+		t.Fatalf("owner: ответ %q, хранение %q", owned.OwnerContact, repo.tasks[seed.ID].OwnerContact)
+	}
+	c.do("POST", opath, map[string]string{"owner_contact": "hijack@mail.kz"}, 403, nil)
+	c.doAuth(own.Token, "POST", opath, map[string]string{"owner_contact": "hijack@mail.kz"}, 403, nil) // вышел из сессии
+	c.doAuth(other.Token, "POST", opath, map[string]string{"owner_contact": "new@mail.kz"}, 200, &owned)
+	if repo.tasks[seed.ID].OwnerContact != "new@mail.kz" {
+		t.Fatalf("смена контакта владельцем: %q", repo.tasks[seed.ID].OwnerContact)
+	}
+	c.do("POST", fmt.Sprintf("/api/proposals/%d/reject", sp.ID), nil, 403, nil) // теперь у задачи есть контакт
+	c.do("POST", "/api/tasks/999/owner", map[string]string{"owner_contact": "a@b.kz"}, 404, nil)
+}
