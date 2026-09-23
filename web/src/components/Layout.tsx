@@ -19,9 +19,9 @@ export function Layout({ mode, setMode, children }: { mode: Mode; setMode: (mode
   return <>
     <a className="skip-link" href="#main">Перейти к содержимому</a>
     <header className="site-header"><div className="header-inner">
-      <Link className="brand" to="/" aria-label="Archibalt — каталог задач"><Logo /></Link>
+      <Link className="brand" to="/" aria-label="Archibalt — на главную"><Logo /></Link>
       <nav className="main-nav" aria-label="Основная навигация">
-        <NavLink to="/" end>Каталог задач</NavLink><NavLink to="/task/new">Создать задачу</NavLink>
+        <NavLink to="/catalog">Каталог задач</NavLink><NavLink to="/task/new">Создать задачу</NavLink>
         {business && <NavLink to="/business">Мои задачи</NavLink>}
         <NavLink to="/teams">Команды</NavLink><NavLink to="/ai">Как работает AI</NavLink>
       </nav>

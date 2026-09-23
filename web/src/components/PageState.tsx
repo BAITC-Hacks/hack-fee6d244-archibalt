@@ -5,6 +5,6 @@ export function PageError({ message, retry }: { message: string; retry?: () => v
     <span className="error-mark" aria-hidden="true">?</span>
     <h1>Не получилось открыть страницу</h1>
     <p>{message}</p>
-    {retry ? <Button onClick={retry}>Повторить</Button> : <ButtonLink variant="primary" to="/">В каталог задач</ButtonLink>}
+    {retry ? <Button onClick={retry}>Повторить</Button> : <ButtonLink variant="primary" to="/catalog">В каталог задач</ButtonLink>}
   </div>
 }

@@ -5,6 +5,7 @@ import { PageError } from './components/PageState'
 import type { Mode } from './fields'
 import { AiPage } from './pages/AiPage'
 import { Catalog } from './pages/Catalog'
+import { Landing } from './pages/Landing'
 import { Clarify } from './pages/Clarify'
 import { MyTasks } from './pages/MyTasks'
 import { TaskEdit } from './pages/TaskEdit'
@@ -20,7 +21,8 @@ export default function App() {
     <ScrollToTop />
     <Layout mode={mode} setMode={setMode}>
       <Routes>
-        <Route path="/" element={<Catalog setMode={setMode} />} />
+        <Route path="/" element={<Landing setMode={setMode} />} />
+        <Route path="/catalog" element={<Catalog setMode={setMode} />} />
         <Route path="/task/new" element={<TaskNew />} />
         <Route path="/task/:id/clarify" element={<Clarify />} />
         <Route path="/task/:id/edit" element={<TaskEdit />} />

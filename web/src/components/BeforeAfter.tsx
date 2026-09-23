@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import type { Missing, Task } from '../api'
+import type { Breakdown, Missing, Task } from '../api'
 import { Badge, type LevelKind } from '../ui'
 import { useLoad } from '../useLoad'
 
@@ -16,12 +16,16 @@ const FALLBACK = {
     { key: 'success_criteria', label: 'Критерии успеха', gain: 15, hint: '' },
     { key: 'constraints', label: 'Ограничения', gain: 10, hint: '' },
   ] as Missing[],
+  breakdown: [
+    ['context_need', 'Контекст и потребность', 20, 20], ['data', 'Данные и материалы', 20, 0], ['expected_result', 'Ожидаемый результат', 15, 0],
+    ['success_criteria', 'Критерии успеха', 15, 0], ['constraints', 'Ограничения', 10, 0], ['users', 'Пользователи', 10, 10], ['business_link', 'Связь с бизнесом', 10, 0],
+  ].map(([key, label, weight, earned]) => ({ key, label, weight, earned, reason: '' }) as Breakdown),
 }
 
-const levelOf = (score: number): LevelKind => (score >= 90 ? 'priority' : score >= 70 ? 'ready' : score >= 40 ? 'working' : 'draft')
+export const levelOf = (score: number): LevelKind => (score >= 90 ? 'priority' : score >= 70 ? 'ready' : score >= 40 ? 'working' : 'draft')
 
-/** «До и после» одной seed-задачи: сырой запрос с низким баллом → та же задача после ответов на вопросы. */
-export function BeforeAfter() {
+/** Данные примера «до/после» по seed-задаче 1: балл сейчас и какой станет, если заполнить недостающие поля. */
+export function useExample() {
   const { data: task } = useLoad<Task | null>(`/tasks/${EXAMPLE_ID}`, null)
   const score = task?.score ?? FALLBACK.score
   const draft = task?.draft_text || FALLBACK.draft
@@ -32,6 +36,13 @@ export function BeforeAfter() {
     if (after >= TARGET) break
     added.push(item); after += item.gain
   }
+  const breakdown = task?.breakdown?.length ? task.breakdown : FALLBACK.breakdown
+  return { task, score, draft, title, added, after, breakdown }
+}
+
+/** «До и после» одной seed-задачи: сырой запрос с низким баллом → та же задача после ответов на вопросы. */
+export function BeforeAfter({ example }: { example: ReturnType<typeof useExample> }) {
+  const { score, draft, title, added, after } = example
   return <aside className="before-after" aria-label="Пример: одна задача до и после уточнения">
     <p className="before-after-caption">Пример из каталога</p>
     <div className="ba-card ba-before">

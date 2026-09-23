@@ -32,7 +32,7 @@ export function TaskShow({ mode }: { mode: Mode }) {
   if (loading) return <Loading />; if (error || !task) return <PageError message={error || 'Задача не найдена.'} />
   const owner = isOwner(task.id)
   return <div className="container detail-page">
-    <Link className="back-link" to="/">← Каталог задач</Link>
+    <Link className="back-link" to="/catalog">← Каталог задач</Link>
     <div className="detail-header">
       <div><div className="task-meta"><span>{task.industry || 'Без темы'}</span><Badge kind={task.level} />{owner && <span className="owner-mark">Ваша задача</span>}</div><h1>{task.fields.title || 'Задача без названия'}</h1><p>{task.fields.need || task.draft_text}</p></div>
       <div className="detail-score"><strong>{task.score}</strong><span>из 100 · готовность задачи</span></div>
