@@ -281,6 +281,13 @@ func finishNext(r model.NextQuestionResult, asked []model.Question, draft string
 			r.Question = &model.Question{Text: t, FieldKey: q.FieldKey, InputType: typ, Suggestions: sg}
 		}
 	}
+	// Последний ответ без сведений (шум, пропуск) — агент сам уточняет ту же тему другой формулировкой,
+	// даже если модель хотела сменить тему или закончить; после второй неудачи поле остаётся пробелом.
+	if n > 0 {
+		if k := asked[n-1].FieldKey; validKey(k) && askable(k, closed, count) && (r.Question == nil || r.Question.FieldKey != k) {
+			r.Question, r.Done = stockQuestionFor(k, count), false
+		}
+	}
 	if r.Done && n >= MinDynamicQuestions && !more {
 		r.Question = nil
 		return r

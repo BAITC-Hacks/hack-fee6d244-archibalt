@@ -158,7 +158,7 @@ func TestOpenAINextQuestionRules(t *testing.T) {
 		t.Fatalf("повтор поля не заменён: %+v", r.Question)
 	}
 
-	three := []model.Question{{FieldKey: model.FieldContext}, {FieldKey: model.FieldData}, {FieldKey: model.FieldContact}}
+	three := []model.Question{{FieldKey: model.FieldContext, Answer: "Склад"}, {FieldKey: model.FieldData, Answer: "Выгрузка из CRM"}, {FieldKey: model.FieldContact, Answer: "ivan@firm.kz"}}
 	payload = map[string]any{"done": true, "reason": "достаточно", "question": nil, "missing_fields": []string{}}
 	r, _ = c.NextQuestion(context.Background(), weakDraft, "", three, false)
 	if !r.Done || r.Reason != "достаточно" || r.Question != nil {
