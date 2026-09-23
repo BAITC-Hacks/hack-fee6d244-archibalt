@@ -6,16 +6,17 @@ import type { Mode } from './fields'
 import { AiPage } from './pages/AiPage'
 import { Catalog } from './pages/Catalog'
 import { Clarify } from './pages/Clarify'
+import { MyTasks } from './pages/MyTasks'
 import { TaskEdit } from './pages/TaskEdit'
 import { TaskNew } from './pages/TaskNew'
 import { TaskShow } from './pages/TaskShow'
 import { Teams } from './pages/Teams'
-import { TeamSessionProvider } from './session'
+import { SessionProvider } from './session'
 
 export default function App() {
   const [mode, setModeState] = useState<Mode>(() => localStorage.getItem('mode') === 'team' ? 'team' : 'business')
   function setMode(next: Mode) { localStorage.setItem('mode', next); setModeState(next) }
-  return <TeamSessionProvider>
+  return <SessionProvider>
     <ScrollToTop />
     <Layout mode={mode} setMode={setMode}>
       <Routes>
@@ -24,10 +25,11 @@ export default function App() {
         <Route path="/task/:id/clarify" element={<Clarify />} />
         <Route path="/task/:id/edit" element={<TaskEdit />} />
         <Route path="/task/:id" element={<TaskShow mode={mode} />} />
+        <Route path="/business" element={<MyTasks />} />
         <Route path="/ai" element={<AiPage />} />
         <Route path="/teams" element={<Teams />} />
         <Route path="*" element={<PageError message="Такой страницы нет. Проверьте адрес или откройте каталог." />} />
       </Routes>
     </Layout>
-  </TeamSessionProvider>
+  </SessionProvider>
 }

@@ -1,11 +1,16 @@
-import { Link, useSearchParams } from 'react-router-dom'
+import { useState, type FormEvent } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { CatalogResponse } from '../api'
-import { capitalize, type Mode } from '../fields'
-import { Alert, Badge, Button, ButtonLink, EmptyState, Field, Select, Spinner, levelLabels, type LevelKind } from '../ui'
+import { capitalize, plural, readDraft, saveDraft, type Mode } from '../fields'
+import { DRAFT_PLACEHOLDER } from './TaskNew'
+import { BeforeAfter } from '../components/BeforeAfter'
+import { Alert, Badge, Button, EmptyState, Field, Select, Spinner, Textarea, levelLabels, type LevelKind } from '../ui'
 import { useLoad } from '../useLoad'
 
 export function Catalog({ setMode }: { setMode: (mode: Mode) => void }) {
-  const [params, setParams] = useSearchParams()
+  const [params, setParams] = useSearchParams(); const navigate = useNavigate()
+  const [draft, setDraft] = useState(() => readDraft().text)
+  function startDraft(event: FormEvent) { event.preventDefault(); setMode('business'); saveDraft(draft, readDraft().industry); navigate('/task/new', { state: { draft } }) }
   const industry = params.get('industry') || ''; const level = params.get('level') || ''
   const query = new URLSearchParams(); if (industry) query.set('industry', industry); if (level) query.set('level', level)
   const { data, loading, refreshing, error } = useLoad<CatalogResponse>(`/tasks${query.size ? `?${query}` : ''}`, { tasks: [], industries: [], levels: [] }, { keepPrevious: true })
@@ -16,24 +21,24 @@ export function Catalog({ setMode }: { setMode: (mode: Mode) => void }) {
     <section className="catalog-hero"><div className="container hero-grid">
       <div>
         <p className="eyebrow">Для бизнеса и студенческих команд</p>
-        <h1>Задачи бизнеса.<br /><em>Идеи студентов.</em></h1>
-        <p className="lead">Напишите, какую проблему хотите решить. Мы поможем уточнить задачу и покажем её готовность по шкале 0–100. Студенты предложат решения, а вы сами выберете команду.</p>
-        <div className="hero-actions">
-          <ButtonLink variant="primary" size="lg" to="/task/new" onClick={() => setMode('business')}>Бизнесу: описать задачу <span aria-hidden="true">↗</span></ButtonLink>
-          <a className="text-link" href="#catalog" onClick={() => setMode('team')}>Команде: выбрать задачу ↓</a>
-        </div>
+        <h1>Из сырого запроса — задача, <em>на которую откликаются команды</em></h1>
+        <p className="lead">AI задаёт вопросы и не выдумывает факты. Вы видите оценку готовности 0–100 и что добавить, студенты предлагают решения, команду выбираете вы.</p>
+        <form className="hero-draft" onSubmit={startDraft}>
+          <label className="hero-draft-label" htmlFor="hero-draft">Опишите задачу своими словами</label>
+          <Textarea id="hero-draft" minRows={3} value={draft} onChange={event => setDraft(event.target.value)} placeholder={DRAFT_PLACEHOLDER} />
+          <div className="hero-draft-foot">
+            <span>3 вопроса → карточка с оценкой готовности → отклики команд · около 3 минут</span>
+            <Button type="submit" variant="primary" size="lg">Описать задачу →</Button>
+          </div>
+        </form>
+        <a className="text-link hero-team-link" href="#catalog" onClick={() => setMode('team')}>Я из команды: выбрать задачу ↓</a>
       </div>
-      <div className="hero-explainer">
-        <div className="process-row"><span>01</span><p>Опишите потребность своими словами</p></div>
-        <div className="process-row"><span>02</span><p>Ответьте на вопросы и улучшите оценку</p></div>
-        <div className="process-row"><span>03</span><p>Получите идеи команд и выберите сами</p></div>
-        <p className="explain-note">Оценка показывает, насколько задача готова к работе.</p>
-      </div>
+      <BeforeAfter />
     </div></section>
     <section id="catalog" className="catalog-section container">
       <div className="section-heading">
         <div><p className="eyebrow">Все опубликованные задачи</p><h2>Выберите задачу</h2><p>Задачи с пометкой «требует уточнения» тоже открыты для просмотра и отклика.</p></div>
-        <span className="count-pill">{data.tasks.length} в каталоге</span>
+        <span className="count-pill">{pulse(data)}</span>
       </div>
       <div className="filters" role="group" aria-label="Фильтры каталога">
         <Field label="Тема"><Select value={industry} options={industryOptions} onChange={value => apply({ industry: value, level })} /></Field>
@@ -57,4 +62,11 @@ export function Catalog({ setMode }: { setMode: (mode: Mode) => void }) {
       </div>
     </section>
   </>
+}
+
+function pulse(data: CatalogResponse) {
+  const tasks = data.stats?.tasks ?? data.tasks.length
+  const parts = [`${tasks} ${plural(tasks, 'задача', 'задачи', 'задач')}`]
+  if (data.stats?.proposals) parts.push(`${data.stats.proposals} ${plural(data.stats.proposals, 'отклик', 'отклика', 'откликов')}`)
+  return parts.join(' · ')
 }
