@@ -686,3 +686,11 @@ func TestNextLevelGain(t *testing.T) {
 		}
 	}
 }
+
+func (m *memRepo) ProposalCounts(ctx context.Context) (map[int]int, error) {
+	out := map[int]int{}
+	for _, p := range m.proposals {
+		out[p.TaskID]++
+	}
+	return out, nil
+}

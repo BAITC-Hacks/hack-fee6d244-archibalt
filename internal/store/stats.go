@@ -24,3 +24,21 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	}
 	return st, nil
 }
+
+// ProposalCounts — число откликов по задачам (для карточек каталога).
+func (s *Store) ProposalCounts(ctx context.Context) (map[int]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT task_id, count(*) FROM proposals GROUP BY task_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int]int{}
+	for rows.Next() {
+		var id, n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
+}

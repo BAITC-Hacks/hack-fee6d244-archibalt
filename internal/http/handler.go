@@ -32,6 +32,7 @@ type Repo interface {
 	GetProposal(ctx context.Context, id int) (model.Proposal, error)
 	UpdateProposalStatus(ctx context.Context, id int, status model.ProposalStatus) (model.Proposal, error)
 	ConfirmStage(ctx context.Context, id int) (model.Proposal, error)
+	ProposalCounts(ctx context.Context) (map[int]int, error)
 	GetTeamByContact(ctx context.Context, contact string) (model.Team, error)
 	GetTeamByName(ctx context.Context, name string) (model.Team, error)
 	CreateTeam(ctx context.Context, t *model.Team) error
@@ -255,7 +256,9 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	for i, t := range all {
 		rankByID[t.ID] = i + 1
 	}
+	counts, _ := s.repo.ProposalCounts(r.Context()) // ошибка не критична: покажем 0
 	for i := range tasks {
+		tasks[i].ProposalsCount = counts[tasks[i].ID]
 		tasks[i].Rank = rankByID[tasks[i].ID]
 		tasks[i].RankIfConfirmed = tasks[i].Rank
 		tasks[i].CatalogSize = len(all)
