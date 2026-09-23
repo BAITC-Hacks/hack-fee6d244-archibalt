@@ -523,11 +523,13 @@ func (s *server) nextQuestion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// previewFields — дешёвая живая карточка без вызова AI: контекст = черновик, ответ на вопрос поля
+// previewFields — дешёвая живая карточка без вызова AI: контекст = черновик (если он не бессмыслица), ответ на вопрос поля
 // кладётся в это поле (несколько ответов на одно поле — через пробел). Настоящую собирает POST /answers.
 func previewFields(t model.Task) model.Fields {
 	f := model.Fields{}.Full()
-	f[model.FieldContext] = t.DraftText
+	if !rating.IsGibberish(t.DraftText) {
+		f[model.FieldContext] = t.DraftText // бессмыслица («фвфовфыов о») — не контекст, поле остаётся пробелом
+	}
 	seen := map[model.FieldKey]bool{}
 	for _, q := range t.Questions {
 		a := strings.TrimSpace(q.Answer)

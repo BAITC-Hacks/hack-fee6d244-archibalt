@@ -233,7 +233,7 @@ func TestOpenAINextReasksAfterNoise(t *testing.T) {
 	asked := []model.Question{
 		{FieldKey: model.FieldContext, Text: questionTexts[model.FieldContext], Answer: "Склад"},
 		{FieldKey: model.FieldUsers, Text: questionTexts[model.FieldUsers], Answer: "Сотрудники склада"},
-		{FieldKey: model.FieldData, Text: questionTexts[model.FieldData], Answer: "по-разному"},
+		{FieldKey: model.FieldData, Text: questionTexts[model.FieldData], Answer: "не знаю"},
 	}
 	r, _ := c.NextQuestion(context.Background(), weakDraft, "", asked, false)
 	if r.Done || r.Question == nil || r.Question.FieldKey != model.FieldData || r.Question.Text != retryTexts[model.FieldData] || len(r.Question.Suggestions) < 2 {

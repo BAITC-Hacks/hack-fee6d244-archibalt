@@ -140,7 +140,7 @@ func TestDynamicNoiseReasks(t *testing.T) {
 	if r.Done || r.Question == nil || r.Question.FieldKey != first.FieldKey || r.Question.Text == first.Text {
 		t.Fatalf("ожидалось переспрашивание %s иначе: %+v", first.FieldKey, r.Question)
 	}
-	if !slices.Contains(r.Missing, first.FieldKey) || strings.Contains(r.CardPreview[first.FieldKey], "здравствуйте") {
+	if !slices.Contains(r.Missing, first.FieldKey) || strings.Contains(r.CardPreview[first.FieldKey], "здравствуйте") || r.CardPreview[model.FieldContext] != "" {
 		t.Fatalf("поле после шума закрыто: missing=%v preview=%q", r.Missing, r.CardPreview[first.FieldKey])
 	}
 	c.doAuth(biz, "POST", path, map[string]string{"answer": "пока не знаю"}, 200, &r)
