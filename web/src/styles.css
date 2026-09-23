@@ -493,7 +493,7 @@ html{scrollbar-gutter:stable}
 @keyframes panel-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
 .main-page{padding-top:84px}
 .landing-hero-grid{padding-top:140px}
-@media(max-width:1320px){.capsule-mode{display:none}}
+@media(max-width:1320px){.capsule-nav{position:static;transform:none;margin-left:auto;gap:16px}.capsule-right{margin-left:12px}}
 @media(max-width:760px){.landing-hero-grid{padding-top:100px}}
 @media(max-width:1023px){.capsule-nav{display:none}.capsule-burger{display:grid}.capsule-mode{display:none}}
 @media(max-width:520px){.cta-pill{padding:0 12px;font-size:12.5px}.cta-pill span{display:none}.capsule{gap:8px;padding:0 6px 0 10px}}
