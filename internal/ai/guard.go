@@ -2,6 +2,8 @@ package ai
 
 import (
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/model"
@@ -78,12 +80,49 @@ func sourceText(draft, industry string, qs []model.Question) string {
 	return strings.Join(parts, "\n")
 }
 
+// LastCall — последний реальный вызов сборки карточки: вход, сырой ответ модели, что вырезал Guard.
+// Показывается на GET /api/ai как наблюдаемое доказательство работы AI и защиты от выдумок (ТЗ §5).
+type LastCall struct {
+	At             time.Time        `json:"at"`
+	Industry       string           `json:"industry"`
+	Draft          string           `json:"draft"`
+	Questions      []model.Question `json:"questions"`
+	RawFields      model.Fields     `json:"raw_fields"`
+	Fields         model.Fields     `json:"fields"`
+	RemovedByGuard []model.FieldKey `json:"removed_by_guard"`
+}
+
+var (
+	lastMu   sync.Mutex
+	lastCall *LastCall // ponytail: один процесс — package-level достаточно
+)
+
+func lastCallCopy() *LastCall {
+	lastMu.Lock()
+	defer lastMu.Unlock()
+	if lastCall == nil {
+		return nil
+	}
+	c := *lastCall
+	return &c
+}
+
 // finishCard — общая постобработка карточки в обоих режимах.
 func finishCard(fields model.Fields, draft, industry string, qs []model.Question) model.CardResult {
+	raw := fields.Full()
 	out := Guard(fields, sourceText(draft, industry, qs))
 	if out[model.FieldTitle] == "" {
 		out[model.FieldTitle] = firstWords(draft, 8)
 	}
+	removed := []model.FieldKey{}
+	for _, k := range model.FieldKeys {
+		if raw[k] != "" && out[k] == "" {
+			removed = append(removed, k)
+		}
+	}
+	lastMu.Lock()
+	lastCall = &LastCall{At: time.Now(), Industry: industry, Draft: draft, Questions: qs, RawFields: raw, Fields: out.Full(), RemovedByGuard: removed}
+	lastMu.Unlock()
 	return model.CardResult{Fields: out}
 }
 

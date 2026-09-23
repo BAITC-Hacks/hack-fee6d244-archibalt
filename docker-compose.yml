@@ -5,7 +5,7 @@ services:
       POSTGRES_PASSWORD: hack
       POSTGRES_DB: hack
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -27,7 +27,7 @@ services:
     environment:
       DATABASE_URL: postgres://postgres:hack@db:5432/hack?sslmode=disable
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-sol}
 
 volumes:
   pgdata:

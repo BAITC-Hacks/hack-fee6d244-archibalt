@@ -29,6 +29,7 @@ type Info struct {
 	PromptCard      string       `json:"prompt_card"`
 	SchemaExample   string       `json:"schema_example"`
 	LastError       *string      `json:"last_error"`
+	LastCall        *LastCall    `json:"last_call"`
 }
 
 const defaultEndpoint = "https://api.openai.com/v1/responses"
@@ -114,7 +115,7 @@ func (f *fallback) Mode() model.AIMode {
 func (f *fallback) Info() Info {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	info := Info{Mode: f.mode, PromptQuestions: PromptQuestions, PromptCard: PromptCard, SchemaExample: SchemaExample}
+	info := Info{Mode: f.mode, PromptQuestions: PromptQuestions, PromptCard: PromptCard, SchemaExample: SchemaExample, LastCall: lastCallCopy()}
 	if f.lastErr != nil {
 		s := f.lastErr.Error()
 		info.LastError = &s

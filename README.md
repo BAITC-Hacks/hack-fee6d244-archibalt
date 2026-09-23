@@ -16,7 +16,7 @@ cd hack-fee6d244-archibalt
 docker compose up --build
 ```
 
-Откройте <http://localhost:8080>. Проверка, что всё живо: <http://localhost:8080/api/health> → `{"ok":true,"db":true,"ai_mode":"mock"}`.
+Откройте <http://localhost:8080>. Нужны свободные порты 8080 (приложение) и 5432 (Postgres, слушает только 127.0.0.1). Проверка, что всё живо: <http://localhost:8080/api/health> → `{"ok":true,"db":true,"ai_mode":"mock"}`.
 
 Живой AI через OpenAI (по желанию): создайте `.env` из `.env.example`, впишите `OPENAI_API_KEY`, перезапустите `docker compose up --build`. `ai_mode` станет `openai`. При ошибке API система один раз повторяет запрос и откатывается на mock, не роняя сценарий.
 
@@ -139,6 +139,10 @@ AI **не** выставляет баллы, **не** выбирает кома�
 Проверка ошибок: пустой черновик → сообщение, отклик без ссылки → сообщение, `/api/tasks/999` → 404.
 
 Тот же сценарий через curl — в [`API_CONTRACT.md`](API_CONTRACT.md); демо-набор (5 черновиков, 5 карточек, 5 команд, 5 откликов) — в [`seed/`](seed/).
+
+## Служебные файлы репозитория
+
+Код продукта: `cmd/`, `internal/`, `db/`, `web/`, `seed/`, `Dockerfile`, `docker-compose.yml`. Остальные Markdown-файлы в корне (`TASK.md`, `PLAN.md`, `STATUS.md`, `API_CONTRACT.md`, `HACKATHON_*.md`, `JUDGE_AGENT_PROMPT.md`, `AGENT_HANDOFF.md`, `AGENTS.md`, `CLAUDE.md`) и папка `research/` — рабочие документы команды и её AI-агентов, на запуск не влияют.
 
 ## Что сознательно не делали (ТЗ §7)
 

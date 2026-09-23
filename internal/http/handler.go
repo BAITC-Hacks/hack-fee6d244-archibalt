@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -176,6 +177,7 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 	}
 	qs := normalizeQuestions(qr.Questions)
 	fields := model.Fields{}.Full()
+	fields[model.FieldContext] = req.DraftText // черновик = контекст: даёт предварительный балл «сейчас N/100» до ответов
 	t := model.Task{
 		Industry:  req.Industry,
 		Status:    model.StatusClarifying,
@@ -386,6 +388,10 @@ func (s *server) createProposal(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(missing) > 0 {
 		writeError(w, http.StatusBadRequest, "обязательные поля не заполнены: "+strings.Join(missing, ", "))
+		return
+	}
+	if u, err := url.Parse(p.Link); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		writeError(w, http.StatusBadRequest, "link: нужна ссылка вида https://…")
 		return
 	}
 
