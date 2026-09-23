@@ -50,6 +50,13 @@ const liveTransport: Transport = {
   async applyResult(session, index, token) {
     await api<Task>(`/tasks/${session.taskId}/apply-result`, withToken(token, json('POST', { index })))
   },
+  async visual(session, token) {
+    const res = await api<{ url: string; ai_mode: string }>(`/tasks/${session.taskId}/visual`, withToken(token, json('POST', {})))
+    // Картинка черновика видна только заявителю — забираем с токеном и показываем как blob.
+    const response = await fetch(res.url, withToken(token))
+    if (!response.ok) throw new Error('Концепт нарисован, но не загрузился. Повторите.')
+    return { src: URL.createObjectURL(await response.blob()), mock: res.ai_mode === 'mock' }
+  },
   async finish(session, token) {
     const answers = session.mode === 'legacy' ? session.local!.answers : {}
     const task = await api<Task>(`/tasks/${session.taskId}/answers`, withToken(token, json('POST', { answers })))

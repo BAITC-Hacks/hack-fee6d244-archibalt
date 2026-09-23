@@ -87,6 +87,7 @@ func NewHandler(repo Repo, aiClient ai.Client, compute RatingFunc, staticDir, de
 	mux.HandleFunc("POST /api/tasks/{id}/next-question", s.nextQuestion)
 	mux.HandleFunc("POST /api/tasks/{id}/result-options", s.resultOptions)
 	mux.HandleFunc("POST /api/tasks/{id}/apply-result", s.applyResult)
+	s.registerVisual(mux) // POST /visual, GET /visual.png — см. visual.go
 	mux.HandleFunc("PUT /api/tasks/{id}/fields", s.updateFields)
 	mux.HandleFunc("POST /api/tasks/{id}/confirm", s.confirm)
 	mux.HandleFunc("POST /api/tasks/{id}/owner", s.setOwner)
@@ -374,6 +375,7 @@ func (s *server) getTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.enrich(r.Context(), &t)
+	t.HasVisual = s.hasVisual(r.Context(), t.ID)
 	writeJSON(w, http.StatusOK, publicTask(t))
 }
 

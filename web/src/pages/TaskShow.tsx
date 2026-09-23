@@ -49,6 +49,11 @@ export function TaskShow({ mode }: { mode: Mode }) {
     <nav className="task-section-nav" aria-label="Разделы задачи"><a href="#brief">Что сделать</a><a href="#resources">Данные и условия</a><a href="#proposals">Отклики <span>{count}</span></a>{!owner && published && <a className="task-nav-cta" href="#respond">Хочу выполнить <span aria-hidden="true">↗</span></a>}</nav>
     <div className="task-workspace">
       <div className="task-content">
+        {task.has_visual && <figure className="task-panel task-visual" style={{ margin: 0 }}>
+          <img src={`/api/tasks/${task.id}/visual.png`} alt="Визуальный концепт первого результата" loading="lazy" style={{ display: 'block', width: '100%', maxWidth: 560, height: 'auto', borderRadius: 12 }}
+            onError={event => { const figure = event.currentTarget.closest('figure'); if (figure) figure.hidden = true }} />
+          <figcaption style={{ marginTop: 8, fontSize: 13, color: 'var(--muted)' }}>Концепт для обсуждения, не обещание объёма · оценка AI</figcaption>
+        </figure>}
         <section className="task-panel task-brief" id="brief">
           <div className="task-panel-heading"><span className="task-section-number">01</span><h2>Задача в трёх ответах</h2></div>
           <div className="task-brief-item"><h3>Что нужно сделать</h3><p>{task.fields.need || task.draft_text || 'Бизнес пока не описал работу. Уточните её перед началом.'}</p></div>

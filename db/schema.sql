@@ -67,3 +67,13 @@ CREATE INDEX IF NOT EXISTS messages_proposal_idx ON messages (proposal_id, creat
 
 -- После загрузки seed с явными id последовательности выставляются на max(id)
 -- (см. internal/store/seed.go, функция resetSequences) — иначе следующий INSERT упадёт на дубликате PK.
+
+-- Визуальный концепт первого результата (OpenAI GPT Image или mock): одна картинка на задачу, повтор перезаписывает.
+CREATE TABLE IF NOT EXISTS task_visuals (
+    task_id    int         PRIMARY KEY REFERENCES tasks (id),
+    mime       text        NOT NULL,
+    data       bytea       NOT NULL,
+    prompt     text        NOT NULL DEFAULT '',
+    ai_mode    text        NOT NULL DEFAULT '',
+    created_at timestamptz NOT NULL DEFAULT now()
+);

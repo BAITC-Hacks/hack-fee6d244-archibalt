@@ -137,6 +137,7 @@ type Task struct {
 	PreviousScore   *int `json:"previous_score"`    // балл до изменения: только в ответах answers / fields / confirm, иначе null
 	ProposalsCount  int  `json:"proposals_count"`   // число откликов (в каталоге)
 	NextLevelGain   int  `json:"next_level_gain"`   // баллов до следующего уровня (40/70/90); 0 при 90+
+	HasVisual       bool `json:"has_visual"`        // есть визуальный концепт (только в GET /api/tasks/{id})
 }
 
 type ProposalStatus string
