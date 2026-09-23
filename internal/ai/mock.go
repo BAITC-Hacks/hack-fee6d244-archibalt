@@ -302,9 +302,9 @@ func finishNext(r model.NextQuestionResult, asked []model.Question, draft string
 		r.Question = nil
 		return r
 	}
-	if r.Question == nil { // модель не дала годного вопроса: сначала ключевые пробелы, затем остальные
+	if r.Question == nil { // модель не дала годного вопроса: сначала бизнес/боль (если черновик короткий), ключевые пробелы, затем остальные
 		var key []model.FieldKey
-		for _, k := range criticalFields {
+		for _, k := range append([]model.FieldKey{model.FieldContext, model.FieldNeed}, criticalFields...) {
 			if slices.Contains(missing, k) {
 				key = append(key, k)
 			}
