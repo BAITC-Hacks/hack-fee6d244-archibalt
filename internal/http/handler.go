@@ -155,6 +155,49 @@ func publicTasks(ts []model.Task) []model.Task {
 	return out
 }
 
+// nextLevelGain — сколько баллов до следующего уровня шкалы ТЗ §4 (40/70/90); 0 на 90+.
+func nextLevelGain(score int) int {
+	for _, th := range []int{40, 70, 90} {
+		if score < th {
+			return th - score
+		}
+	}
+	return 0
+}
+
+// ladder — место задачи t в каталоге pub (отсортирован score DESC, published_at ASC).
+// Опубликованная: rank = rankIfConfirmed = позиция. Неопубликованная: rank = 0, rankIfConfirmed —
+// куда встала бы при текущем балле: после всех опубликованных с баллом >= своего (новая публикация позже).
+func ladder(pub []model.Task, t model.Task) (rank, rankIfConfirmed int) {
+	if t.Status == model.StatusPublished {
+		for i, p := range pub {
+			if p.ID == t.ID {
+				return i + 1, i + 1
+			}
+		}
+	}
+	rankIfConfirmed = 1
+	for _, p := range pub {
+		if p.ID != t.ID && p.Score >= t.Score {
+			rankIfConfirmed++
+		}
+	}
+	return 0, rankIfConfirmed
+}
+
+// enrich заполняет вычисляемые поля «лестницы мест» у одной задачи. Ошибка каталога не ломает ответ:
+// ранги остаются 0, next_level_gain считается всегда.
+func (s *server) enrich(ctx context.Context, t *model.Task) {
+	t.NextLevelGain = nextLevelGain(t.Score)
+	pub, _, err := s.repo.ListTasks(ctx, "", "")
+	if err != nil {
+		slog.Warn("enrich: list tasks", "err", err)
+		return
+	}
+	t.CatalogSize = len(pub)
+	t.Rank, t.RankIfConfirmed = ladder(pub, *t)
+}
+
 func pathID(w http.ResponseWriter, r *http.Request) (int, bool) {
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil || id <= 0 {
@@ -196,6 +239,24 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fail(w, err, "")
 		return
+	}
+	// Ранг — место во всём каталоге: при фильтре позиция в выдаче не совпадает с ним, берём полный список.
+	all := tasks
+	if industry != "" || level != "" {
+		if all, _, err = s.repo.ListTasks(r.Context(), "", ""); err != nil {
+			fail(w, err, "")
+			return
+		}
+	}
+	rankByID := make(map[int]int, len(all))
+	for i, t := range all {
+		rankByID[t.ID] = i + 1
+	}
+	for i := range tasks {
+		tasks[i].Rank = rankByID[tasks[i].ID]
+		tasks[i].RankIfConfirmed = tasks[i].Rank
+		tasks[i].CatalogSize = len(all)
+		tasks[i].NextLevelGain = nextLevelGain(tasks[i].Score)
 	}
 	levels := make([]levelOption, 0, len(levelOrder))
 	for _, l := range levelOrder {
@@ -255,6 +316,7 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "")
 		return
 	}
+	s.enrich(r.Context(), &t)
 	writeJSON(w, http.StatusCreated, publicTask(t))
 }
 
@@ -286,6 +348,7 @@ func (s *server) getTask(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "задача не найдена")
 		return
 	}
+	s.enrich(r.Context(), &t)
 	writeJSON(w, http.StatusOK, publicTask(t))
 }
 
@@ -307,6 +370,7 @@ func (s *server) loadTask(w http.ResponseWriter, r *http.Request) (model.Task, b
 // saveEdited: любое изменение снимает подтверждение; опубликованная задача уходит из каталога
 // до повторного «Подтвердить» (баллы начисляются только подтверждённым полям, ТЗ §4).
 func (s *server) saveEdited(w http.ResponseWriter, r *http.Request, t *model.Task) {
+	prev := t.Score // балл до пересчёта: поля уже изменены, Rating — ещё прежний
 	t.Fields = t.Fields.Full()
 	t.Confirmed = false
 	t.Status = model.StatusEditing
@@ -315,6 +379,8 @@ func (s *server) saveEdited(w http.ResponseWriter, r *http.Request, t *model.Tas
 		fail(w, err, "задача не найдена")
 		return
 	}
+	s.enrich(r.Context(), t)
+	t.PreviousScore = &prev
 	writeJSON(w, http.StatusOK, publicTask(*t))
 }
 
@@ -423,6 +489,7 @@ func (s *server) confirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
+	prev := t.Score
 	t.Fields = t.Fields.Full()
 	t.Confirmed = true
 	t.Status = model.StatusPublished
@@ -432,6 +499,8 @@ func (s *server) confirm(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "задача не найдена")
 		return
 	}
+	s.enrich(r.Context(), &t)
+	t.PreviousScore = &prev
 	writeJSON(w, http.StatusOK, publicTask(t))
 }
 
@@ -473,6 +542,7 @@ func (s *server) setOwner(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.OwnerContact = c
+	s.enrich(r.Context(), &t)
 	writeJSON(w, http.StatusOK, publicTask(t))
 }
 

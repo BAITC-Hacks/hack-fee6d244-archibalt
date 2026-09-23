@@ -32,6 +32,12 @@ interface Task {
   ai_mode: "openai" | "mock";
   created_at: string; published_at: string | null;
   proposals?: Proposal[];                  // только в GET /api/tasks/{id}
+  // лестница мест — считает бэкенд на каждый ответ, в БД не хранится
+  rank: number;                            // место в каталоге (1 = первое) по score DESC, published_at ASC; 0 — не опубликована
+  rank_if_confirmed: number;               // место при текущем score, если подтвердить сейчас (равный балл — после уже опубликованных); у опубликованной = rank
+  catalog_size: number;                    // сколько задач опубликовано сейчас (сама неопубликованная не входит)
+  previous_score: number | null;           // балл до изменения — только в ответах answers / fields / confirm, иначе null
+  next_level_gain: number;                 // баллов до следующего уровня (40/70/90); 0 при 90+
 }
 interface Proposal {
   id: number; task_id: number; team: { id: number; name: string };
@@ -48,6 +54,14 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 - `confirmed=false` → `score` — **предварительный** (preview). Фронт подписывает его «предварительно» и не показывает задачу в каталоге. Любой `PUT /api/tasks/{id}/fields` сбрасывает `confirmed=false` и `status` в `editing`, даже у опубликованной задачи, до повторного `POST /confirm`.
 - `confirmed=true` → `score` — **официальный**, задача в каталоге на позиции по нему. Каталог (`GET /api/tasks`) отдаёт только подтверждённые.
 Отдельного поля `score_official` нет: официальный балл существует только у подтверждённой задачи. Тесты: `internal/http/handler_test.go` (сброс подтверждения при правке; задача не в каталоге до confirm).
+
+## Лестница мест («55 → 100 · #4 → #1 из 6»)
+
+- Ранги отдают `POST /api/tasks`, `GET /api/tasks/{id}`, `answers`, `fields`, `confirm`, `owner`; в `GET /api/tasks` — `rank`, `catalog_size`, `next_level_gain` у каждой (ранг по всему каталогу, даже при фильтре).
+- Балл: `previous_score → score` (если `previous_score` null или равен `score` — показывать только `score`).
+- Место: `#{rank_if_confirmed}`; прежнее место — `rank_if_confirmed` из предыдущего ответа (фронт хранит последний `Task` в состоянии, не пересчитывает).
+- «из N»: у опубликованной `N = catalog_size`; у неопубликованной `catalog_size` её не включает — писать «из {catalog_size} в каталоге» или `catalog_size + 1` после подтверждения (ответ `confirm` уже вернёт новое `catalog_size`).
+- Подсказка уровня: «+{next_level_gain} до {следующий уровень}», при `next_level_gain = 0` — не показывать. После `confirm` `rank == rank_if_confirmed` из ответа до него.
 
 ## Эндпоинты
 

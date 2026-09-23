@@ -113,6 +113,13 @@ type Task struct {
 	// OwnerContact — нормализованный email/телефон заявителя для входа бизнеса; пусто у seed-задач.
 	// В публичных ответах маскирован, полный — только в GET /api/business/me.
 	OwnerContact string `json:"owner_contact"`
+
+	// Лестница мест — вычисляется хендлером на каждый ответ, в БД не хранится.
+	Rank            int  `json:"rank"`              // место в каталоге среди опубликованных (1 = первое); 0 — не опубликована
+	RankIfConfirmed int  `json:"rank_if_confirmed"` // место при текущем балле, если подтвердить сейчас; у опубликованной = rank
+	CatalogSize     int  `json:"catalog_size"`      // сколько задач опубликовано (для «#4 из 6»)
+	PreviousScore   *int `json:"previous_score"`    // балл до изменения: только в ответах answers / fields / confirm, иначе null
+	NextLevelGain   int  `json:"next_level_gain"`   // баллов до следующего уровня (40/70/90); 0 при 90+
 }
 
 type ProposalStatus string

@@ -60,7 +60,19 @@ func (m *memRepo) ListTasks(_ context.Context, industry, level string) ([]model.
 			out = append(out, t)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	sort.Slice(out, func(i, j int) bool { // как в store: score DESC, published_at ASC, id ASC
+		a, b := out[i], out[j]
+		if a.Score != b.Score {
+			return a.Score > b.Score
+		}
+		if (a.PublishedAt == nil) != (b.PublishedAt == nil) {
+			return a.PublishedAt != nil
+		}
+		if a.PublishedAt != nil && !a.PublishedAt.Equal(*b.PublishedAt) {
+			return a.PublishedAt.Before(*b.PublishedAt)
+		}
+		return a.ID < b.ID
+	})
 	industries := []string{}
 	for k := range inds {
 		industries = append(industries, k)
@@ -524,5 +536,110 @@ func TestRecommend(t *testing.T) {
 			ids = append(ids, g.ID)
 		}
 		t.Fatalf("recommend: %v", ids)
+	}
+}
+
+// TestLadder — поля «лестницы мест»: rank / rank_if_confirmed / catalog_size / previous_score / next_level_gain.
+func TestLadder(t *testing.T) {
+	repo := newMemRepo()
+	// seed-каталог: 5 опубликованных задач, два равных балла различаются published_at
+	base := time.Now().Add(-time.Hour)
+	for i, score := range []int{90, 70, 70, 55, 30} {
+		pa := base.Add(time.Duration(i) * time.Minute)
+		task := model.Task{Industry: "IT", Status: model.StatusPublished, Confirmed: true, Fields: model.Fields{}.Full(),
+			Rating: model.Rating{Score: score}, PublishedAt: &pa}
+		if err := repo.CreateTask(context.Background(), &task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := testClient{t, NewHandler(repo, fakeAI{}, fakeRating, t.TempDir(), "")}
+
+	var cat struct{ Tasks []model.Task }
+	c.do("GET", "/api/tasks", nil, 200, &cat)
+	for i, tk := range cat.Tasks {
+		if tk.Rank != i+1 || tk.RankIfConfirmed != i+1 || tk.CatalogSize != 5 || tk.PreviousScore != nil {
+			t.Fatalf("каталог #%d: rank %d, if_confirmed %d, size %d, prev %v", i, tk.Rank, tk.RankIfConfirmed, tk.CatalogSize, tk.PreviousScore)
+		}
+	}
+	if cat.Tasks[1].ID != 2 || cat.Tasks[2].ID != 3 {
+		t.Fatalf("при равном балле раньше опубликованная выше: %d, %d", cat.Tasks[1].ID, cat.Tasks[2].ID)
+	}
+	c.do("GET", "/api/tasks?level=bogus", nil, 400, nil)
+	var one model.Task
+	c.do("GET", "/api/tasks/3", nil, 200, &one)
+	if one.Rank != 3 || one.RankIfConfirmed != 3 || one.CatalogSize != 5 || one.PreviousScore != nil || one.NextLevelGain != 20 {
+		t.Fatalf("GET опубликованной: %+v", one)
+	}
+	c.do("GET", "/api/tasks/4", nil, 200, &one) // 55 баллов → 15 до «готовой» (70)
+	if one.Score != 55 || one.NextLevelGain != 15 || one.Rank != 4 {
+		t.Fatalf("GET 55: score %d, gain %d, rank %d", one.Score, one.NextLevelGain, one.Rank)
+	}
+	c.do("GET", "/api/tasks/1", nil, 200, &one)
+	if one.Score != 90 || one.NextLevelGain != 0 || one.Rank != 1 {
+		t.Fatalf("GET 90: score %d, gain %d, rank %d", one.Score, one.NextLevelGain, one.Rank)
+	}
+
+	var task model.Task
+	c.do("POST", "/api/tasks", map[string]string{"draft_text": "Нужно приложение", "industry": "IT"}, 201, &task)
+	// fakeRating: context = 10 баллов → после 90,70,70,55,30 встаёт шестой
+	if task.Rank != 0 || task.RankIfConfirmed != 6 || task.CatalogSize != 5 || task.PreviousScore != nil || task.NextLevelGain != 30 {
+		t.Fatalf("после создания: rank %d, if_confirmed %d, size %d, prev %v, gain %d",
+			task.Rank, task.RankIfConfirmed, task.CatalogSize, task.PreviousScore, task.NextLevelGain)
+	}
+	path := fmt.Sprintf("/api/tasks/%d", task.ID)
+	answers := map[string]string{}
+	for _, q := range task.Questions {
+		answers[fmt.Sprint(q.ID)] = "ответ"
+	}
+	before := task.Score
+	c.do("POST", path+"/answers", map[string]any{"answers": answers}, 200, &task)
+	if task.PreviousScore == nil || *task.PreviousScore != before || task.Score != 40 {
+		t.Fatalf("answers: prev %v, want %d; score %d", task.PreviousScore, before, task.Score)
+	}
+	// 40 баллов: выше 30, ниже 55 → встала бы пятой (после 90,70,70,55)
+	if task.Rank != 0 || task.RankIfConfirmed != 5 {
+		t.Fatalf("answers: rank %d, if_confirmed %d", task.Rank, task.RankIfConfirmed)
+	}
+
+	// PUT fields: 50 баллов → 20 до 70; выше 30, ниже 55 → по-прежнему пятая
+	c.do("PUT", path+"/fields", map[string]any{"fields": map[string]string{"title": "t"}}, 200, &task)
+	if task.PreviousScore == nil || *task.PreviousScore != 40 || task.Score != 50 || task.NextLevelGain != 20 || task.RankIfConfirmed != 5 {
+		t.Fatalf("fields: prev %v, score %d, gain %d, if_confirmed %d", task.PreviousScore, task.Score, task.NextLevelGain, task.RankIfConfirmed)
+	}
+	c.do("PUT", path+"/fields", map[string]any{"fields": map[string]string{"need": "n", "constraints": "c"}}, 200, &task)
+	if task.Score != 70 || *task.PreviousScore != 50 || task.RankIfConfirmed != 4 { // при равном 70 — после двух опубликованных
+		t.Fatalf("равный балл: score %d, prev %v, if_confirmed %d", task.Score, *task.PreviousScore, task.RankIfConfirmed)
+	}
+	all := map[string]string{}
+	for _, k := range model.FieldKeys {
+		all[string(k)] = "x"
+	}
+	c.do("PUT", path+"/fields", map[string]any{"fields": all}, 200, &task)
+	if task.Score != 100 || task.RankIfConfirmed != 1 || task.Rank != 0 || task.NextLevelGain != 0 {
+		t.Fatalf("100 баллов: score %d, rank %d, if_confirmed %d, gain %d", task.Score, task.Rank, task.RankIfConfirmed, task.NextLevelGain)
+	}
+	wantRank := task.RankIfConfirmed
+
+	c.do("POST", path+"/confirm", nil, 200, &task)
+	if task.Rank != wantRank || task.RankIfConfirmed != wantRank || task.CatalogSize != 6 || task.PreviousScore == nil || *task.PreviousScore != 100 {
+		t.Fatalf("confirm: rank %d, want %d; size %d; prev %v", task.Rank, wantRank, task.CatalogSize, task.PreviousScore)
+	}
+	c.do("GET", path, nil, 200, &task)
+	if task.Rank != 1 || task.PreviousScore != nil {
+		t.Fatalf("GET после confirm: rank %d, prev %v", task.Rank, task.PreviousScore)
+	}
+	// фильтр не меняет место в общем каталоге: в выдаче одна задача (fakeRating ставит level draft только ей),
+	// но rank и catalog_size — по всему каталогу
+	c.do("GET", "/api/tasks?level=draft", nil, 200, &cat)
+	if len(cat.Tasks) != 1 || cat.Tasks[0].Rank != 1 || cat.Tasks[0].CatalogSize != 6 {
+		t.Fatalf("фильтр: %d задач, rank/size %+v", len(cat.Tasks), cat.Tasks)
+	}
+}
+
+func TestNextLevelGain(t *testing.T) {
+	for score, want := range map[int]int{0: 40, 39: 1, 40: 30, 55: 15, 69: 1, 70: 20, 89: 1, 90: 0, 100: 0} {
+		if got := nextLevelGain(score); got != want {
+			t.Errorf("nextLevelGain(%d) = %d, want %d", score, got, want)
+		}
 	}
 }
