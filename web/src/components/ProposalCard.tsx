@@ -66,7 +66,11 @@ export function ProposalCard({ proposal, canDecide, skills = [], initialOpenChat
       </div>
     </div>
     {error && <Alert tone="error" className="proposal-alert">{error}</Alert>}
-    {chat && showChat && <ProposalChat proposalId={proposal.id} token={role === 'team' ? team?.token : business?.token} me={role} />}
+    {showChat && (proposal.status === 'selected' || proposal.status === 'accepted') && !proposal.stage_confirmed && <Alert className="proposal-alert" title={proposal.status === 'selected' ? 'Следующий шаг — подтвердить участие' : 'Можно согласовать старт'}>
+      <p>{proposal.status === 'selected' ? ownTeam && !canDecide ? 'Нажмите «Принять проект», если готовы участвовать.' : 'Ждём подтверждения команды.' : 'Участие подтверждено обеими сторонами.'} В переписке согласуйте первый результат, дату показа и доступные данные. Баллы начисляются после подтверждения выполненного этапа.</p>
+      {!chat && <Button size="sm" variant="secondary" onClick={() => setChat(true)}>Обсудить первый шаг</Button>}
+    </Alert>}
+    {chat && showChat && <ProposalChat proposalId={proposal.id} token={role === 'team' ? team?.token : business?.token} me={role} kickoff={proposal.status === 'selected' || proposal.status === 'accepted'} />}
     <ConfirmDialog open={ask === 'reject'} title={`Отклонить предложение команды ${proposal.team.name}?`} confirmLabel="Отклонить" tone="danger" busy={busy === 'reject'} onCancel={() => setAsk('')} onConfirm={() => void decision('reject')}>
       <p className="dialog-text">Команда увидит статус «отклонена». Выбрать это предложение потом не получится.</p>
     </ConfirmDialog>

@@ -11,6 +11,26 @@ import { useLoad } from '../useLoad'
 import { useStartChat } from './TaskNew'
 import './TaskShow.css'
 
+const PUBLIC_TZ_FIELDS: Array<[keyof Task['fields'], string]> = [
+  ['title', 'Название'], ['context', 'Контекст'], ['need', 'Потребность'], ['users', 'Пользователи'],
+  ['data', 'Данные и материалы'], ['constraints', 'Ограничения'], ['expected_result', 'Ожидаемый результат'],
+  ['success_criteria', 'Критерии успеха'], ['contact', 'Контакт'], ['interaction_format', 'Формат взаимодействия'],
+]
+
+function downloadPublicTaskSpec(task: Task) {
+  const lines = [
+    'ТЕХНИЧЕСКОЕ ЗАДАНИЕ',
+    '',
+    ...PUBLIC_TZ_FIELDS.flatMap(([key, label]) => [`${label}:`, task.fields[key] || 'Не указано', '']),
+    `Готовность описания: ${task.score}/100`,
+    `Дата публикации: ${task.published_at ? new Date(task.published_at).toLocaleDateString('ru-RU') : new Date().toLocaleDateString('ru-RU')}`,
+    `Ссылка: ${window.location.origin}/task/${task.id}`,
+  ]
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob); const anchor = document.createElement('a')
+  anchor.href = url; anchor.download = `tz-task-${task.id}.txt`; document.body.appendChild(anchor); anchor.click(); anchor.remove(); URL.revokeObjectURL(url)
+}
+
 export function TaskShow({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) => void }) {
   const student = mode === 'team'
   const startChat = useStartChat()
@@ -99,7 +119,7 @@ export function TaskShow({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) 
       <p>{owner ? 'Управляйте описанием и сравнивайте предложения команд. Вы решаете, с кем работать.' : student ? 'Изучите задачу и предложите, как ваша команда её решит. Решение о сотрудничестве принимает бизнес.' : 'Посмотрите, как описаны результат и условия проекта. AI поможет подготовить вашу собственную задачу.'}</p>
     </header>
     {selected && <Alert tone="success" className="task-selected" title="Бизнес выбрал вашу команду">Подтвердите участие или откажитесь в своём отклике. <a href="#proposals">Перейти к откликам →</a></Alert>}
-    <nav className="task-section-nav" aria-label="Разделы задачи"><a href="#brief">Что сделать</a><a href="#resources">Данные и условия</a><a href="#proposals">Отклики <span>{count}</span></a>{!owner && student && published && <a className="task-nav-cta" href="#respond">Хочу выполнить <span aria-hidden="true">↗</span></a>}</nav>
+    <nav className="task-section-nav" aria-label="Разделы задачи"><a href="#brief">Что сделать</a><a href="#resources">Данные и условия</a><a href="#proposals">Отклики <span>{count}</span></a>{published && <Button type="button" variant="ghost" size="sm" onClick={() => downloadPublicTaskSpec(task)}>Скачать ТЗ ↓</Button>}{!owner && student && published && <a className="task-nav-cta" href="#respond">Хочу выполнить <span aria-hidden="true">↗</span></a>}</nav>
     <div className="task-workspace">
       <div className="task-content">
         {task.has_visual && <figure className="task-panel task-visual" style={{ margin: 0 }}>

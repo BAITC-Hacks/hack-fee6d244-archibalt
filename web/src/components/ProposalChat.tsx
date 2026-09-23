@@ -15,7 +15,7 @@ const merge = (current: Message[] | null, incoming: Message[]) => {
 }
 
 /** Переписка по отклику: WebSocket по контракту; при обрыве — история и отправка по REST, опрос раз в 5 с и переподключение. */
-export function ProposalChat({ proposalId, token, me }: { proposalId: number; token?: string; me: 'business' | 'team' }) {
+export function ProposalChat({ proposalId, token, me, kickoff = false }: { proposalId: number; token?: string; me: 'business' | 'team'; kickoff?: boolean }) {
   const [messages, setMessages] = useState<Message[] | null>(null)
   const [text, setText] = useState(''); const [sending, setSending] = useState(false); const [error, setError] = useState('')
   const [link, setLink] = useState<Link>('connecting')
@@ -81,6 +81,7 @@ export function ProposalChat({ proposalId, token, me }: { proposalId: number; to
       </li>)}</ol>
       : <p className="chat-empty">{me === 'business' ? 'Напишите команде, чтобы договориться о старте.' : 'Напишите заявителю, чтобы уточнить детали.'}</p>}
     {error && <Alert tone="error">{error}</Alert>}
+    {kickoff && <div className="chat-kickoff"><Button size="sm" variant="ghost" disabled={Boolean(text.trim())} onClick={() => setText('Давайте согласуем первый шаг:\n1. Какой результат покажем первым?\n2. К какой дате подготовим показ?\n3. Какие данные и доступы доступны?\n4. Кто со стороны бизнеса проверит результат?')}>Подготовить вопросы для старта</Button><small>Появится редактируемый черновик. Отправите сами.</small></div>}
     <div className="chat-compose">
       <Textarea minRows={1} value={text} onChange={event => setText(event.target.value)} onKeyDown={onKey} placeholder="Сообщение. Enter — отправить, Shift+Enter — новая строка" aria-label="Сообщение" maxLength={2000} />
       <Button variant="primary" loading={sending} disabled={!text.trim()} onClick={() => void send()}>Отправить</Button>
