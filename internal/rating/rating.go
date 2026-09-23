@@ -126,7 +126,7 @@ var (
 	refusalMarkers = []string{" нет ", " не будет ", " никаких ", " не передадим ", " не планируем ", "отсутству",
 		" не ведем ", " не хотим ", " тоже нет "}
 	// refusalAlt — план или альтернатива, при которых отказ не обнуляет поле (ищется после удаления «не/без X»).
-	refusalAlt = []string{" но ", " вместо ", " зато ", " после ", " сможем ", " доступ", " обезличен", " передад",
+	refusalAlt = []string{" но ", " вместо ", " зато ", " после ", " сможем ", "дадим доступ", "предоставим доступ", " обезличен", " передад",
 		" предостав", " дадим", " получим", " соберем", " запросим", " выгрузим", " планируем", " в течение",
 		" к началу", " по запросу"}
 
@@ -520,14 +520,25 @@ func contactKind(text string) string {
 		return "Telegram"
 	}
 	for _, m := range rePhone.FindAllString(text, -1) {
-		n, distinct := 0, map[rune]bool{}
+		n, distinct, run, maxRun := 0, map[rune]bool{}, 0, 0
+		var prev rune
 		for _, r := range m {
 			if unicode.IsDigit(r) {
 				n++
 				distinct[r] = true
+				if r == prev {
+					run++
+				} else {
+					run = 1
+				}
+				if run > maxRun {
+					maxRun = run
+				}
+				prev = r
 			}
 		}
-		if n >= 10 && n <= 15 && len(distinct) >= 3 {
+		// ≥4 разных цифр и без серии из 5+ одинаковых: «+7 000 000 00 01», «1111111112» — не контакт
+		if n >= 10 && n <= 15 && len(distinct) >= 4 && maxRun < 5 {
 			return "телефон"
 		}
 	}

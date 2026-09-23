@@ -89,10 +89,12 @@ func TestTeamDecisions(t *testing.T) {
 	c.doAuth(f.teamB, "POST", b+"/accept", nil, 400, nil)
 	c.doAuth(f.owner, "POST", b+"/confirm-stage", nil, 400, nil)
 
-	// hold — бизнес по правилам select
+	// hold — бизнес по правилам select; у отклонённого командой отклика решение уже зафиксировано
 	c.do("POST", b+"/hold", nil, 403, nil)
 	c.doAuth(f.other, "POST", b+"/hold", nil, 403, nil)
-	c.doAuth(f.owner, "POST", b+"/hold", nil, 200, &p)
+	c.doAuth(f.owner, "POST", b+"/hold", nil, 400, nil)
+	pc := f.propose(f.teamB, f.task.ID)
+	c.doAuth(f.owner, "POST", fmt.Sprintf("/api/proposals/%d/hold", pc.ID), nil, 200, &p)
 	if p.Status != model.ProposalOnHold {
 		t.Fatalf("hold: %+v", p)
 	}

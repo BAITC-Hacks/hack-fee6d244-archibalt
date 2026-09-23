@@ -33,7 +33,7 @@ func loadConfig() config {
 		port:        env("PORT", "8080"),
 		databaseURL: env("DATABASE_URL", "postgres://postgres:hack@localhost:5432/hack?sslmode=disable"),
 		openAIKey:   os.Getenv("OPENAI_API_KEY"),
-		openAIModel: env("OPENAI_MODEL", "gpt-4.1-mini"),
+		openAIModel: env("OPENAI_MODEL", "gpt-6-sol"),
 		seedDir:     env("SEED_DIR", "./seed"),
 		staticDir:   env("STATIC_DIR", "./web/dist"),
 		demoOTP:     env("DEMO_OTP", httpapi.DefaultDemoOTP), // реальной отправки кода нет

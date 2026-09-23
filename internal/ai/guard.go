@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -120,6 +121,17 @@ var (
 	lastCall *LastCall // ponytail: один процесс — package-level достаточно
 )
 
+var (
+	reEmail = regexp.MustCompile(`[\w.+-]+@[\w-]+\.[\w.]+`)
+	rePhone = regexp.MustCompile(`\+?\d[\d\s()-]{8,}\d`)
+)
+
+// maskPII — email и телефоны в публичном примере last_call заменяются на маску.
+func maskPII(s string) string {
+	s = reEmail.ReplaceAllString(s, "***@***")
+	return rePhone.ReplaceAllString(s, "+***")
+}
+
 func lastCallCopy() *LastCall {
 	lastMu.Lock()
 	defer lastMu.Unlock()
@@ -127,6 +139,18 @@ func lastCallCopy() *LastCall {
 		return nil
 	}
 	c := *lastCall
+	c.Draft = maskPII(c.Draft)
+	c.Questions = append([]model.Question(nil), c.Questions...)
+	for i := range c.Questions {
+		c.Questions[i].Answer = maskPII(c.Questions[i].Answer)
+	}
+	c.RawFields, c.Fields = model.Fields{}, model.Fields{}
+	for k, v := range lastCall.RawFields {
+		c.RawFields[k] = maskPII(v)
+	}
+	for k, v := range lastCall.Fields {
+		c.Fields[k] = maskPII(v)
+	}
 	return &c
 }
 

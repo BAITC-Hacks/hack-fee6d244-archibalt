@@ -323,6 +323,10 @@ func (s *server) answers(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if t.OwnerContact != "" && !s.isTaskOwner(r, t) {
+		writeError(w, http.StatusForbidden, "изменять задачу может заявитель: войдите по контакту, указанному в заявке")
+		return
+	}
 	var req struct {
 		Answers map[string]string `json:"answers"`
 	}
@@ -366,6 +370,12 @@ func (s *server) updateFields(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Задачу с контактом заявителя правит только заявитель (иначе аноним снимал бы чужую задачу с каталога);
+	// задачи без контакта открыты для дополнения любым (правило демо).
+	if t.OwnerContact != "" && !s.isTaskOwner(r, t) {
+		writeError(w, http.StatusForbidden, "дополнить карточку может заявитель задачи: войдите по контакту, указанному в заявке")
+		return
+	}
 	var req struct {
 		Fields map[string]*string `json:"fields"`
 	}
@@ -395,6 +405,10 @@ func (s *server) updateFields(w http.ResponseWriter, r *http.Request) {
 func (s *server) confirm(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.loadTask(w, r)
 	if !ok {
+		return
+	}
+	if t.OwnerContact != "" && !s.isTaskOwner(r, t) {
+		writeError(w, http.StatusForbidden, "изменять задачу может заявитель: войдите по контакту, указанному в заявке")
 		return
 	}
 	empty := true
@@ -557,6 +571,10 @@ func (s *server) setProposalStatus(status model.ProposalStatus) http.HandlerFunc
 			return
 		}
 		if !s.authorizeDecision(w, r, p.TaskID) {
+			return
+		}
+		if p.Status == model.ProposalAccepted || p.Status == model.ProposalDeclined {
+			writeError(w, http.StatusBadRequest, "решение по отклику уже зафиксировано командой: "+string(p.Status))
 			return
 		}
 		p, err = s.repo.UpdateProposalStatus(r.Context(), id, status)

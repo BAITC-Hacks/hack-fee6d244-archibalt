@@ -167,8 +167,11 @@ func TestBusinessOwner(t *testing.T) {
 		t.Fatalf("owner_contact: ответ %q, хранение %q", task.OwnerContact, repo.tasks[task.ID].OwnerContact)
 	}
 	path := fmt.Sprintf("/api/tasks/%d", task.ID)
-	c.do("PUT", path+"/fields", map[string]any{"fields": map[string]string{"title": "Бот"}}, 200, &task) // дополнять может любой
-	c.do("POST", path+"/confirm", nil, 200, &task)
+	c.do("PUT", path+"/fields", map[string]any{"fields": map[string]string{"title": "Бот"}}, 403, nil) // задачу с контактом правит только заявитель
+	var ownerTok struct{ Token string }
+	c.do("POST", "/api/auth/business/verify", map[string]string{"contact": "owner@mail.kz", "code": "000000"}, 200, &ownerTok)
+	c.doAuth(ownerTok.Token, "PUT", path+"/fields", map[string]any{"fields": map[string]string{"title": "Бот"}}, 200, &task)
+	c.doAuth(ownerTok.Token, "POST", path+"/confirm", nil, 200, &task)
 	if task.OwnerContact != "o***@mail.kz" || repo.tasks[task.ID].OwnerContact != "owner@mail.kz" {
 		t.Fatalf("после правки контакт должен сохраниться маскированным: %q", task.OwnerContact)
 	}

@@ -57,7 +57,7 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 | POST `/api/tasks` | `{ draft_text: string, industry: string }` | `Task` (status `clarifying`, `questions` заполнены ≥3) | draft_text пустой → 400. AI вызывается здесь |
 | GET `/api/tasks/{id}` | — | `Task` с `proposals` | любой статус |
 | POST `/api/tasks/{id}/answers` | `{ answers: { [question_id: string]: string } }` | `Task` (status `editing`, `fields` собраны AI из черновика+ответов, score посчитан, confirmed=false) | AI вызывается здесь; поля без данных остаются "" |
-| PUT `/api/tasks/{id}/fields` | `{ fields: Partial<Record<FieldKey,string>> }` | `Task` (score/breakdown/missing пересчитаны, confirmed=false) | ручное редактирование, можно вызывать много раз |
+| PUT `/api/tasks/{id}/fields` | `{ fields: Partial<Record<FieldKey,string>> }` | `Task` (score/breakdown/missing пересчитаны, confirmed=false) | ручное редактирование, можно вызывать много раз. У задачи с `owner_contact` — только заявитель (Bearer business), иначе 403; то же для `answers` и `confirm`. Задачи без контакта открыты |
 | POST `/api/tasks/{id}/confirm` | — | `Task` (confirmed=true, status `published`, published_at) | ручное подтверждение = публикация. Баллы начисляются только подтверждённым полям, поэтому score до confirm — «предварительный» (фронт так и подписывает) |
 | POST `/api/tasks/{id}/proposals` | `{ team_id, idea, plan, deadline, link }` | `Proposal` | все поля обязательны → иначе 400; лимита нет |
 | POST `/api/proposals/{id}/select` | — | `Proposal` | бизнес выбрал |
@@ -65,7 +65,7 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 | POST `/api/proposals/{id}/confirm-stage` | — | `Proposal` (+ команде начислены баллы) | **вне критического пути**, после 16:00 |
 | GET `/api/teams` | — | `Team[]` | для select в форме отклика |
 | GET `/api/teams/{id}/recommended` | — | `Task[]` | **вне критического пути** |
-| GET `/api/ai` | — | `{ mode, prompt_questions, prompt_card, schema_example, last_error: string\|null }` | страница «как работает AI» для ТЗ §5 |
+| GET `/api/ai` | — | `{ mode, prompt_questions, prompt_card, schema_example, last_error: string\|null, last_call: {...}\|null }` | страница «как работает AI» для ТЗ §5; в `last_call` email и телефоны маскированы |
 | GET `/api/health` | — | `{ ok: true, db: true, ai_mode }` | для README и проверки экспертом |
 
 ## Экраны фронта (маршруты SPA, на усмотрение Ильяса по дизайну)
@@ -138,7 +138,7 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 
 ## Чат по отклику и двустороннее принятие (решение Абылая 16:30)
 
-Статусы отклика: `new` → `selected` (бизнес выбрал) → `accepted` (команда подтвердила; проект принят обеими сторонами) | `declined` (команда отказалась после выбора). Также `rejected` (бизнес отклонил) и `on_hold` (бизнес отложил; «холд» — до уточнения третьей роли). `confirm-stage` доступен только для `accepted`.
+Статусы отклика: `new` → `selected` (бизнес выбрал) → `accepted` (команда подтвердила; проект принят обеими сторонами) | `declined` (команда отказалась после выбора). Также `rejected` (бизнес отклонил) и `on_hold` (бизнес отложил). `confirm-stage` доступен для `selected` и `accepted` (в интерфейсе пока нет кнопки «Принять», поэтому этап подтверждается и по выбранному отклику; `accepted` = принятие с двух сторон). Решения бизнеса (`select`/`reject`/`hold`) нельзя менять у отклика в статусе `accepted` или `declined` → 400.
 
 | Метод и путь | Тело | Ответ | Кто |
 |---|---|---|---|
