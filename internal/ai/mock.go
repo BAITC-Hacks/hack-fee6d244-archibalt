@@ -302,8 +302,14 @@ func finishNext(r model.NextQuestionResult, asked []model.Question, draft string
 		r.Question = nil
 		return r
 	}
-	if r.Question == nil {
-		lists := [][]model.FieldKey{missing}
+	if r.Question == nil { // модель не дала годного вопроса: сначала ключевые пробелы, затем остальные
+		var key []model.FieldKey
+		for _, k := range criticalFields {
+			if slices.Contains(missing, k) {
+				key = append(key, k)
+			}
+		}
+		lists := [][]model.FieldKey{key, missing}
 		if n < MinDynamicQuestions || more {
 			lists = append(lists, padOrder)
 		}
