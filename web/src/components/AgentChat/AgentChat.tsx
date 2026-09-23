@@ -281,7 +281,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
       <p>Вот {msg.options.length === 2 ? 'два варианта' : `${msg.options.length} варианта`} первого результата, который команда сможет сделать и который вы сможете проверить.</p>
       <ul className="agent-results">
         {msg.options.map((option, index) => <li key={index} className={cx('agent-result', msg.chosen === index && 'is-chosen', msg.chosen !== undefined && msg.chosen !== index && 'is-muted')}>
-          <div className="agent-result-head"><h4>{option.title}</h4>{option.weeks > 0 && <span className="agent-result-weeks">~{option.weeks} {plural(option.weeks, 'неделя', 'недели', 'недель')}</span>}</div>
+          <div className="agent-result-head"><h4>{option.title}</h4>{option.weeks > 0 && <span className="agent-result-weeks" title="Оценка AI, не обязательство">~{option.weeks} {plural(option.weeks, 'неделя', 'недели', 'недель')} · оценка AI</span>}</div>
           <dl>
             <div><dt>Результат</dt><dd>{option.result}</dd></div>
             <div><dt>Как проверим</dt><dd>{option.check}</dd></div>
