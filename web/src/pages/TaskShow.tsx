@@ -31,28 +31,23 @@ export function TaskShow({ mode }: { mode: Mode }) {
   }
   if (loading) return <Loading />; if (error || !task) return <PageError message={error || 'Задача не найдена.'} />
   const owner = isOwner(task.id)
+  const mine = team ? task.proposals?.find(item => item.team.id === team.team.id && item.status === 'selected') : undefined
   return <div className="container detail-page">
     <Link className="back-link" to="/catalog">← Каталог задач</Link>
     <div className="detail-header">
       <div><div className="task-meta"><span>{task.industry || 'Без темы'}</span><Badge kind={task.level} />{owner && <span className="owner-mark">Ваша задача</span>}</div><h1>{task.fields.title || 'Задача без названия'}</h1><p>{task.fields.need || task.draft_text}</p></div>
       <div className="detail-score"><strong>{task.score}</strong><span>из 100 · готовность задачи</span></div>
     </div>
+    {mine && <Alert tone="success" className="selected-banner" title="Заявитель выбрал вашу команду">Примите проект или откажитесь в строке отклика ниже. <a href="#proposals">К отклику</a></Alert>}
     <div className="detail-grid">
       <div>
         <section className="detail-card">
           <div className="section-heading compact"><div><p className="eyebrow">Описание</p><h2>О задаче</h2></div>{owner && <ButtonLink to={`/task/${id}/edit`}>Дополнить задачу</ButtonLink>}</div>
           <dl className="task-fields">{fieldSpecs.filter(spec => spec.key !== 'title').map(spec => <div key={spec.key}><dt>{spec.label}</dt><dd>{task.fields[spec.key] || <span className="not-filled">Пока не указано</span>}</dd></div>)}</dl>
         </section>
-        <section className="detail-card proposals-section" id="proposals">
-          <div className="section-heading compact"><div><p className="eyebrow">Открытый выбор</p><h2>Предложения команд <span className="heading-count">{task.proposals?.length || 0}</span></h2></div></div>
-          {owner && <p className="section-note">Автоматического назначения нет: команду выбираете вы.</p>}
-          {task.proposals?.length
-            ? <ProposalTable proposals={task.proposals} teams={teams} canDecide={owner && mode === 'business'} update={() => void refresh()} />
-            : <EmptyState slim title="Предложений пока нет">Задача открыта всем командам. Первый отклик появится здесь.</EmptyState>}
-        </section>
       </div>
       <aside className="detail-aside">
-        {mode === 'team' && <section className="respond-card" id="respond">
+        {!owner && <section className="respond-card" id="respond">
           <p className="eyebrow">Для студенческих команд</p>
           <h2>Предложить решение</h2>
           {checking ? <p className="respond-who"><Spinner size="sm" /> Проверяем вход…</p>
@@ -71,5 +66,12 @@ export function TaskShow({ mode }: { mode: Mode }) {
         <RatingPanel task={task} />
       </aside>
     </div>
+    <section className="detail-card proposals-section" id="proposals">
+      <div className="section-heading compact"><div><p className="eyebrow">Открытый выбор</p><h2>Отклики команд <span className="heading-count">{task.proposals?.length || 0}</span></h2></div></div>
+      <p className="section-note">{owner ? 'Автоматического назначения нет: решение по каждому отклику принимаете вы.' : 'Отклики видны всем. Решение принимает заявитель, выбранная команда подтверждает проект.'}</p>
+      {task.proposals?.length
+        ? <ProposalTable proposals={task.proposals} teams={teams} canDecide={owner && mode === 'business'} update={() => void refresh()} />
+        : <EmptyState slim title="Откликов пока нет">Задача открыта всем командам. Первый отклик появится здесь.</EmptyState>}
+    </section>
   </div>
 }

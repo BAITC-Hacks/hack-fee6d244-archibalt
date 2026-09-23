@@ -7,6 +7,8 @@ import { ProposalChat } from './ProposalChat'
 type Action = 'select' | 'reject' | 'hold' | 'confirm-stage' | 'accept' | 'decline'
 const DECIDED: Proposal['status'][] = ['selected', 'accepted', 'declined', 'rejected']
 const done: Record<Action, string> = { select: 'Команда выбрана. Ждём её подтверждения.', reject: 'Предложение отклонено', hold: 'Предложение отложено', 'confirm-stage': 'Этап подтверждён, команде начислены баллы', accept: 'Проект принят. Можно начинать работу.', decline: 'Вы отказались от проекта' }
+/** Статус словами: кто что решил и чего ждём. */
+const STATUS: Record<Proposal['status'], string> = { new: 'На рассмотрении', selected: 'Выбрана, ждём ответа команды', accepted: 'Принят обеими сторонами', declined: 'Команда отказалась', rejected: 'Отклонена', on_hold: 'Отложена' }
 const date = (iso: string) => new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
 
 /** Отклики одной структуры: команда · идея · план · срок и ссылка · статус и действие. */
@@ -14,7 +16,7 @@ export function ProposalTable({ proposals, canDecide, teams = [], update }: { pr
   const skills = new Map(teams.map(team => [team.id, [...team.skills, ...team.tech].slice(0, 3)]))
   return <div className="proposal-table" role="table" aria-label="Предложения команд">
     <div className="proposal-row proposal-head" role="row">
-      <span role="columnheader">Команда</span><span role="columnheader">Идея</span><span role="columnheader">План</span><span role="columnheader">Срок</span><span role="columnheader">Статус и действие</span>
+      <span role="columnheader">Команда</span><span role="columnheader">Идея</span><span role="columnheader">План</span><span role="columnheader">Срок</span><span role="columnheader">Ссылка</span><span role="columnheader">Статус</span><span role="columnheader">Действие</span>
     </div>
     {proposals.map(proposal => <ProposalCard key={proposal.id} proposal={proposal} canDecide={canDecide} skills={skills.get(proposal.team.id) ?? []} update={update} />)}
   </div>
@@ -39,9 +41,10 @@ export function ProposalCard({ proposal, canDecide, skills = [], update }: { pro
       <div role="cell" className="proposal-team"><strong>{proposal.team.name}</strong>{skills.length > 0 && <small>{skills.join(' · ')}</small>}<small>{date(proposal.created_at)}</small></div>
       <div role="cell" className="proposal-text"><span className="proposal-label">Идея</span><p>{proposal.idea}</p></div>
       <div role="cell" className="proposal-text"><span className="proposal-label">План</span><p>{proposal.plan}</p></div>
-      <div role="cell" className="proposal-when"><span className="proposal-label">Срок</span><span>{proposal.deadline}</span><a href={proposal.link} target="_blank" rel="noopener noreferrer">Материалы ↗</a></div>
+      <div role="cell" className="proposal-when"><span className="proposal-label">Срок</span><span>{proposal.deadline}</span></div>
+      <div role="cell" className="proposal-link"><span className="proposal-label">Ссылка</span><a href={proposal.link} target="_blank" rel="noopener noreferrer">Материалы ↗</a></div>
+      <div role="cell" className="proposal-status"><span className="proposal-label">Статус</span><Badge kind={proposal.status}>{STATUS[proposal.status]}</Badge>{proposal.stage_confirmed && <small className="confirmed-stage">Этап подтверждён</small>}</div>
       <div role="cell" className="proposal-actions">
-        <Badge kind={proposal.status} />
         {canDecide && <>
           <Button variant="primary" size="sm" disabled={decided || Boolean(busy)} loading={busy === 'select'} onClick={() => void decision('select')}>Выбрать</Button>
           <div className="proposal-quiet">
@@ -49,12 +52,12 @@ export function ProposalCard({ proposal, canDecide, skills = [], update }: { pro
             <Button variant="ghost" size="sm" disabled={decided || Boolean(busy)} onClick={() => setAsk('reject')}>Отклонить</Button>
           </div>
           {(proposal.status === 'selected' || proposal.status === 'accepted') && !proposal.stage_confirmed && <Button variant="secondary" size="sm" loading={busy === 'confirm-stage'} disabled={Boolean(busy)} onClick={() => void decision('confirm-stage')}>Подтвердить этап</Button>}
-          {proposal.stage_confirmed && <small className="confirmed-stage">Этап подтверждён</small>}
         </>}
         {ownTeam && !canDecide && proposal.status === 'selected' && <>
           <Button variant="primary" size="sm" loading={busy === 'accept'} disabled={Boolean(busy)} onClick={() => void decision('accept')}>Принять проект</Button>
           <Button variant="ghost" size="sm" disabled={Boolean(busy)} onClick={() => setAsk('decline')}>Отказаться</Button>
         </>}
+        {!showChat && <small className="proposal-nobody">Решение за заявителем</small>}
         {showChat && <Button variant="ghost" size="sm" aria-expanded={chat} onClick={() => setChat(value => !value)}>{chat ? 'Скрыть переписку' : `Обсудить${proposal.messages_count ? ` (${proposal.messages_count})` : ''}`}</Button>}
       </div>
     </div>
