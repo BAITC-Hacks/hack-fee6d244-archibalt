@@ -40,6 +40,10 @@ try {
   }
   await call('Page.navigate', { url: base })
   await wait(`Boolean(document.querySelector('.capsule-mode button'))`)
+  assert.equal(await evaluate(`document.querySelectorAll('.story-step').length`), 4)
+  assert.equal(await evaluate(`document.querySelectorAll('.facts .count-up').length`), 4)
+  assert.equal(await evaluate(`document.querySelectorAll('#compare tbody tr').length`), 6)
+  assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('.capsule-nav a[href^="#"]')).map(link => link.getAttribute('href'))`), ['#how', '#compare', '#faq'])
   const chooseMode = async label => {
     await evaluate(`Array.from(document.querySelectorAll('.capsule-mode button')).find(button => button.textContent === ${JSON.stringify(label)}).click()`)
     await wait(`document.querySelector('.capsule-mode [aria-pressed="true"]').textContent === ${JSON.stringify(label)}`)

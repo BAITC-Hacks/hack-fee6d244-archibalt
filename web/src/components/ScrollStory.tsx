@@ -63,7 +63,7 @@ export function ScrollStory({ example, catalog }: { example: Example; catalog: T
   const level = levelOf(score)
 
   return <>
-  <div className="container story-intro" id="how"><p className="eyebrow">Как это работает</p><h2>Одна задача: от черновика до первого места</h2></div>
+  <div className="container story-intro" id="how"><p className="eyebrow">Как это работает</p><h2>Одна задача: от черновика до роста в каталоге</h2><p className="lead">Пример: ответы добавляют детали, повышают готовность и помогают команде понять задачу.</p></div>
   <section className="story" ref={section} aria-label="Как это работает: история одной задачи">
     <div className="container story-grid">
       <div className="story-steps">
@@ -109,7 +109,7 @@ export function ScrollStory({ example, catalog }: { example: Example; catalog: T
 }
 
 function DraftCard({ example, score, level, compact, hidden }: { example: Example; score: number; level: ReturnType<typeof levelOf>; compact: boolean; hidden: boolean }) {
-  return <div className={`story-card glass${compact ? ' is-compact' : ''}${hidden ? ' is-hidden' : ''}`}>
+  return <div className={`story-card glass${compact ? ' is-compact' : ''}${hidden ? ' is-hidden' : ''}`} aria-hidden={hidden}>
     <div className="story-card-head">
       <span className="story-card-title">{example.title}</span>
       <span className="story-score"><strong>{score}</strong> из 100</span>
@@ -122,7 +122,8 @@ function DraftCard({ example, score, level, compact, hidden }: { example: Exampl
 function MiniCatalog({ on, progress, example, catalog }: { on: boolean; progress: number; example: Example; catalog: Task[] }) {
   const others = catalog.filter(task => task.id !== 1).slice(0, 4).map(task => ({ id: task.id, title: capitalize(task.fields.title.replace(/^Демо:\s*/, '')), score: task.score }))
   const rows = others.length ? others : [{ id: 4, title: 'Поиск учебных материалов', score: 90 }, { id: 3, title: 'Очередь заявок мастерской', score: 70 }, { id: 2, title: 'Планирование доставки', score: 60 }, { id: 5, title: 'Распределение заявок на вторсырьё', score: 42 }]
-  const from = rows.length; const ourY = (from - from * progress) * ROW
+  const from = rows.length; const target = rows.filter(row => row.score > example.after).length
+  const ourY = (from - (from - target) * progress) * ROW
   const place = 1 + rows.filter((_, index) => index * ROW + ROW / 2 < ourY).length
   return <div className={`story-layer story-catalog${on ? ' is-on' : ''}`} aria-hidden={!on}>
     <span className="rank-chip glass">#{from + 1} → #{place}</span>

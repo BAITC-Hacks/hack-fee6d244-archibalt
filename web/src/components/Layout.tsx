@@ -9,7 +9,7 @@ import { useStartChat } from '../pages/TaskNew'
 export function ScrollToTop() { const { pathname, hash } = useLocation(); useEffect(() => { if (!hash) window.scrollTo(0, 0) }, [pathname, hash]); return null }
 
 const modes: { value: Mode; label: string }[] = [{ value: 'business', label: 'Я бизнес' }, { value: 'team', label: 'Я студент' }]
-const ANCHORS = [{ id: 'how', label: 'Как это работает' }]
+const ANCHORS = [{ id: 'how', label: 'Как это работает' }, { id: 'compare', label: 'Сравнение' }, { id: 'faq', label: 'Вопросы' }]
 
 /** Шапка прозрачна над hero лендинга и становится стеклянной при прокрутке; на внутренних страницах стеклянная сразу. */
 function useGlass(landing: boolean) {
