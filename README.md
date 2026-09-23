@@ -41,7 +41,7 @@ cd web && npm ci && npm run dev  # фронт на :5173 с proxy /api → :8080
 | `PORT` | `8080` | порт HTTP |
 | `DATABASE_URL` | в compose задан | строка подключения Postgres |
 | `OPENAI_API_KEY` | пусто → mock | ключ OpenAI; **не коммитить**, `.env` в `.gitignore` |
-| `OPENAI_MODEL` | `gpt-4.1-mini` | модель для Responses API |
+| `OPENAI_MODEL` | `gpt-5.4-mini` | модель для Responses API |
 | `SEED_DIR` | `./seed` | папка с демо-данными |
 | `STATIC_DIR` | `./web/dist` | собранный фронт |
 

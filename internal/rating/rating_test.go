@@ -13,7 +13,7 @@ func fullCard() model.Fields {
 		model.FieldContext:           "Сейчас заявки клиентов приходят на почту и вручную переносятся в таблицу, это занимает много времени.",
 		model.FieldNeed:              "Нужно автоматически классифицировать заявки и распределять их по ответственным менеджерам.",
 		model.FieldUsers:             "Менеджеры отдела продаж и руководители филиалов компании, около 40 сотрудников.",
-		model.FieldData:              "Есть выгрузка из CRM за 2 года в Excel, около 50 000 заявок с примерами категорий.",
+		model.FieldData:              "Есть выгрузка из CRM за 2 года в Excel, около 50 000 заявок с примерами категорий, передадим в первую неделю.",
 		model.FieldConstraints:       "Срок — 2 месяца, данные нельзя выносить за контур, стек только Python и PostgreSQL.",
 		model.FieldExpectedResult:    "Прототип веб-сервиса, который классифицирует входящие заявки и назначает ответственного.",
 		model.FieldSuccessCriteria:   "Точность классификации не менее 85%, время обработки заявки снижение на 30% за 3 месяца.",
@@ -103,12 +103,12 @@ func TestFull(t *testing.T) {
 
 func TestPartial(t *testing.T) {
 	f := model.Fields{
-		model.FieldContext:         "Сейчас заявки клиентов приходят на почту и обрабатываются вручную.", // полно
-		model.FieldData:            "Есть выгрузка из CRM за 2 года в Excel, около 5000 строк",           // полно
-		model.FieldExpectedResult:  "Прототип",                                                           // коротко → 7
-		model.FieldSuccessCriteria: "Чтобы было удобно и быстро работать сотрудникам",                    // без меры → 7
-		model.FieldUsers:           "Менеджеры отдела продаж и руководители филиалов компании",           // полно
-		model.FieldContact:         "ivan@corp.kz",                                                       // полно, формат пуст → 5
+		model.FieldContext:         "Сейчас заявки клиентов приходят на почту и обрабатываются вручную.",            // полно
+		model.FieldData:            "Есть выгрузка из CRM за 2 года в Excel, около 5000 строк, передадим после NDA", // полно
+		model.FieldExpectedResult:  "Прототип",                                                                      // коротко → 7
+		model.FieldSuccessCriteria: "Чтобы было удобно и быстро работать сотрудникам",                               // без меры → 7
+		model.FieldUsers:           "Менеджеры отдела продаж и руководители филиалов компании",                      // полно
+		model.FieldContact:         "ivan@corp.kz",                                                                  // полно, формат пуст → 5
 	}
 	r := Compute(f, false)
 	checkInvariants(t, r)
@@ -150,7 +150,8 @@ func TestFieldSigns(t *testing.T) {
 		{model.FieldContact, "8 (701) 123-45-67", true},
 		{model.FieldContact, "t.me/ivan_corp", true},
 		{model.FieldContact, "Иван, отдел продаж", false},
-		{model.FieldInteractionFormat, "раз в две недели", true},
+		{model.FieldInteractionFormat, "созвон раз в две недели", true},
+		{model.FieldInteractionFormat, "раз в две недели", false},
 		{model.FieldInteractionFormat, "как получится", false},
 		{model.FieldConstraints, "Всё нужно сделать до 1 декабря, иначе проект теряет смысл.", true},
 		{model.FieldConstraints, "Никаких особых пожеланий к реализации решения у нас нет вообще.", false},
@@ -180,6 +181,128 @@ func TestFormulaDescription(t *testing.T) {
 	for _, s := range []string{"Контекст и потребность — 20", "Связь с бизнесом — 10", "90–100 — приоритетная"} {
 		if !strings.Contains(d, s) {
 			t.Errorf("description lacks %q", s)
+		}
+	}
+}
+
+func allFields(v string) model.Fields {
+	f := model.Fields{}
+	for _, k := range model.FieldKeys {
+		f[k] = v
+	}
+	return f
+}
+
+func earnedOf(r model.Rating, key string) int {
+	for _, b := range r.Breakdown {
+		if b.Key == key {
+			return b.Earned
+		}
+	}
+	return -1
+}
+
+func TestStubs(t *testing.T) {
+	stubs := []string{"x", "XXX", "х", "-", "—", ".", "?", "...", "123", "TODO", "tbd", "N/A", "нет", "Не знаю.",
+		"нет данных", "Пока нет", "позже", "заполню", "  x  "}
+	for _, s := range stubs {
+		r := Compute(allFields(s), false)
+		checkInvariants(t, r)
+		if r.Score != 0 || r.Level != model.LevelDraft {
+			t.Errorf("all fields %q: score %d level %s", s, r.Score, r.Level)
+		}
+		for _, b := range r.Breakdown {
+			if b.Reason != "Не заполнено (заглушка)" {
+				t.Errorf("%q %s reason = %q", s, b.Key, b.Reason)
+			}
+		}
+	}
+	// Содержательная фраза с «нет» — не заглушка.
+	if st := evalField(model.FieldConstraints, "персональных данных нет, работаем с обезличенными логами").st; st == stStub || st == stEmpty {
+		t.Errorf("содержательная фраза с «нет» принята за заглушку")
+	}
+}
+
+func TestCounterexamples(t *testing.T) {
+	cases := []struct {
+		name string
+		f    model.Fields
+		key  string
+		want int
+	}{
+		{"contact @ + чат", model.Fields{model.FieldContact: "@", model.FieldInteractionFormat: "чат"}, "business_link", 5},
+		{"contact tg + format x", model.Fields{model.FieldContact: "tg", model.FieldInteractionFormat: "x"}, "business_link", 0},
+		{"контакт без формы", model.Fields{model.FieldContact: "Иван", model.FieldInteractionFormat: "Созвон раз в неделю"}, "business_link", 5},
+		{"telegram + ритм", model.Fields{model.FieldContact: "@ivan_corp", model.FieldInteractionFormat: "Чат в Telegram, отвечаем в течение дня"}, "business_link", 10},
+		{"версия не число", model.Fields{model.FieldSuccessCriteria: "Проверить обработку заявок в новой версии 2"}, "success_criteria", 7},
+		{"число с метрикой", model.Fields{model.FieldSuccessCriteria: "снизить время обработки заявки на 30%"}, "success_criteria", 15},
+		{"рост без числа", model.Fields{model.FieldSuccessCriteria: "рост продаж и снижение нагрузки на операторов"}, "success_criteria", 7},
+		{"сценарий приёмки", model.Fields{model.FieldSuccessCriteria: "Принимаем, если на 20 реальных заявках бот верно определит категорию"}, "success_criteria", 15},
+		{"данных нет", model.Fields{model.FieldData: "Данных нет, выгрузка недоступна"}, "data", 10},
+		{"данных нет с планом", model.Fields{model.FieldData: "Данных пока нет, соберём образцы заявок в течение недели"}, "data", 20},
+		{"материал + передача", model.Fields{model.FieldData: "Выгрузка из CRM за 2 года, передадим в первую неделю"}, "data", 20},
+		{"материал без передачи", model.Fields{model.FieldData: "Выгрузка из CRM за 2 года"}, "data", 10},
+		{"короткие пользователи", model.Fields{model.FieldUsers: "10 менеджеров сервисного центра"}, "users", 10},
+		{"пользователи без роли", model.Fields{model.FieldUsers: "Много людей по всему Казахстану каждый день"}, "users", 5},
+		{"короткий артефакт с функцией", model.Fields{model.FieldExpectedResult: "CSV-отчёт по продажам с фильтром по датам"}, "expected_result", 15},
+		{"артефакт без функции", model.Fields{model.FieldExpectedResult: "Прототип"}, "expected_result", 7},
+	}
+	for _, c := range cases {
+		r := Compute(c.f, false)
+		checkInvariants(t, r)
+		if got := earnedOf(r, c.key); got != c.want {
+			t.Errorf("%s: %s = %d, want %d (%+v)", c.name, c.key, got, c.want, r.Breakdown)
+		}
+	}
+}
+
+func TestNoLengthHintsAndMeaningfulReasons(t *testing.T) {
+	r := Compute(model.Fields{model.FieldContext: "Заявки вручную", model.FieldNeed: "Автоматизировать"}, false)
+	checkInvariants(t, r)
+	b := r.Breakdown[0]
+	if b.Earned != 10 || !strings.Contains(b.Reason, "опишите, что происходит сейчас и что нужно изменить") {
+		t.Errorf("context_need = %d %q", b.Earned, b.Reason)
+	}
+	for _, f := range []model.Fields{allFields("коротко"), {}} {
+		r := Compute(f, false)
+		for _, b := range r.Breakdown {
+			if strings.Contains(b.Reason, "символ") || strings.Contains(b.Reason, "слов") {
+				t.Errorf("%s reason about length: %q", b.Key, b.Reason)
+			}
+		}
+		for _, m := range r.Missing {
+			if strings.Contains(m.Hint, "символ") || m.Hint == "" {
+				t.Errorf("%s hint = %q", m.Key, m.Hint)
+			}
+		}
+	}
+}
+
+func TestRepeatAndSpacesDoNotHelp(t *testing.T) {
+	phrases := model.Fields{
+		model.FieldContext:           "Заявки обрабатываем вручную",
+		model.FieldNeed:              "Нужно быстрее",
+		model.FieldUsers:             "Люди из офиса",
+		model.FieldData:              "Есть кое-что",
+		model.FieldConstraints:       "Особых нет",
+		model.FieldExpectedResult:    "Что-то полезное",
+		model.FieldSuccessCriteria:   "Чтобы было лучше",
+		model.FieldContact:           "Иван",
+		model.FieldInteractionFormat: "Как удобно",
+	}
+	repeated := model.Fields{}
+	for k, v := range phrases {
+		repeated[k] = strings.Repeat(v+"   \n\t ", 5)
+	}
+	one, many := Compute(phrases, false), Compute(repeated, false)
+	checkInvariants(t, one)
+	checkInvariants(t, many)
+	if many.Score > one.Score {
+		t.Fatalf("повтор улучшил оценку: %d > %d", many.Score, one.Score)
+	}
+	for i := range one.Breakdown {
+		if many.Breakdown[i].Earned > one.Breakdown[i].Earned {
+			t.Errorf("%s: повтор %d > одна фраза %d", one.Breakdown[i].Key, many.Breakdown[i].Earned, one.Breakdown[i].Earned)
 		}
 	}
 }

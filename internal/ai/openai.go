@@ -14,7 +14,7 @@ import (
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/model"
 )
 
-const defaultModel = "gpt-4.1-mini"
+const defaultModel = "gpt-5.4-mini"
 
 // openAIClient — вызов OpenAI Responses API через net/http, без SDK.
 type openAIClient struct {
