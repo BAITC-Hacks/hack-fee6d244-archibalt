@@ -26,6 +26,9 @@ type visualRepo interface {
 
 var (
 	imageGenOnce sync.Once
+	visualMu     sync.Mutex
+	visualBusy   = map[int]bool{}
+	visualCount  = map[int]int{}
 	imageGen     *ai.ImageGen
 )
 
@@ -33,6 +36,8 @@ func getImageGen() *ai.ImageGen {
 	imageGenOnce.Do(func() { imageGen = ai.NewImageGen() })
 	return imageGen
 }
+
+const visualMaxPerTask = 5
 
 func (s *server) registerVisual(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/tasks/{id}/visual", s.createVisual)
@@ -64,6 +69,22 @@ func (s *server) createVisual(w http.ResponseWriter, r *http.Request) {
 	if !ok || !s.requireOwner(w, r, t, notEditorMsg) {
 		return
 	}
+	// ponytail: лимит в памяти — не больше visualMaxPerTask генераций на задачу и одна одновременно; общий бюджет — после сдачи.
+	visualMu.Lock()
+	if visualBusy[t.ID] || visualCount[t.ID] >= visualMaxPerTask {
+		busy := visualBusy[t.ID]
+		visualMu.Unlock()
+		if busy {
+			writeError(w, http.StatusTooManyRequests, "концепт уже рисуется, подождите")
+		} else {
+			writeError(w, http.StatusTooManyRequests, "лимит генераций для этой задачи исчерпан")
+		}
+		return
+	}
+	visualBusy[t.ID] = true
+	visualCount[t.ID]++
+	visualMu.Unlock()
+	defer func() { visualMu.Lock(); delete(visualBusy, t.ID); visualMu.Unlock() }()
 	ctx, cancel := context.WithTimeout(r.Context(), 65*time.Second)
 	defer cancel()
 	start := time.Now()
