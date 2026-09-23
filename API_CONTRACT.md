@@ -120,6 +120,37 @@ curl -s -X POST localhost:8080/api/tasks/$ID/next-question -H "Authorization: Be
 curl -s -X POST localhost:8080/api/tasks/$ID/answers -H "Authorization: Bearer $BIZ" -H 'Content-Type: application/json' -d '{}'
 ```
 
+## Варианты первого результата
+
+После `done: true` в диалоге AI предлагает 2–3 варианта первого проверяемого результата для студенческой команды — от малого к среднему. Это предложения AI, а не факты о бизнесе: в карточку попадает только выбранный (и при желании исправленный) человеком вариант. Варианты в БД не хранятся: считаются по запросу из черновика и ответов, последние показанные запоминаются в памяти сервера для `apply-result`.
+
+```ts
+interface ResultOption {
+  title: string;   // 3–6 слов
+  result: string;  // что команда передаст, 1–2 предложения → fields.expected_result
+  check: string;   // как бизнес проверит готовность (наблюдаемо/измеримо) → fields.success_criteria
+  needs: string;   // что нужно от бизнеса: данные, доступы, время; неизвестное помечено «нужно уточнить»
+  weeks: number;   // оценка срока, 2–8
+}
+```
+
+| Метод и путь | Тело | Ответ | Примечание |
+|---|---|---|---|
+| POST `/api/tasks/{id}/result-options` | — | `{ options: ResultOption[], ai_mode }` | 2–3 варианта, отсортированы по `weeks`. Задачу не меняет |
+| POST `/api/tasks/{id}/apply-result` | `{ index: number, edits?: { result?: string, check?: string } }` | `Task` (с `previous_score`) | `index` — номер варианта (с 0) из последнего ответа `result-options`. `expected_result` = `edits.result` или `result`, `success_criteria` = `edits.check` или `check`; остальные поля не трогаются; рейтинг пересчитывается, `confirmed=false`, статус `editing` — как `PUT /fields` |
+
+Права — как у `answers`: только заявитель (без токена 401, чужой — 403, у задачи без заявителя — 403). Ошибки: нет `index` или он вне диапазона, неверный JSON → 400; нет задачи → 404; AI недоступен → 502 (на практике не бывает: mock).
+
+Что делает фронт: после `done` в диалоге вызвать `result-options` и показать 2–3 карточки: крупно «Результат» (`result`), ниже «Как проверим» (`check`), «Что нужно от вас» (`needs`), «~N недель» (`weeks`), с заголовком `title`. Карточку можно выбрать и поправить текст результата/проверки → `apply-result` → переход в редактор карточки (`/task/:id/edit`). Можно пропустить варианты и сразу собрать карточку через `answers {}` — `apply-result` имеет смысл вызывать после `answers`, иначе сборка карточки перезапишет эти два поля.
+
+AI: быстрая модель (`OPENAI_MODEL_FAST`), строгая JSON-схема `{options: [{title, result, check, needs, weeks}]}`, промпт — `GET /api/ai` → `prompt_result_options`. Защита от выдумок поверх ответа модели: вариант удаляется, если в `title/result/check/needs` есть число, которого нет в черновике/ответах (в паре с тем же словом), или имя собственное/бренд не из них; `weeks` приводится к 2–8; больше 3 — обрезается; меньше 2 — дополняется детерминированными вариантами mock («Обзор одного процесса» по данным из ответа, «Прототип формы для <пользователи>»). При ошибке модели — повтор и mock. Замер живого прогона: `result-options` ~3.7–4.3 с, `apply-result` ~0.04 с.
+
+```bash
+curl -s -X POST localhost:8080/api/tasks/$ID/result-options -H "Authorization: Bearer $BIZ"
+curl -s -X POST localhost:8080/api/tasks/$ID/apply-result -H "Authorization: Bearer $BIZ" -H 'Content-Type: application/json' \
+  -d '{"index":0,"edits":{"check":"Администратор видит оплаты группы без сверки с WhatsApp"}}'
+```
+
 ## Экраны фронта (маршруты SPA, на усмотрение Ильяса по дизайну)
 
 `/` каталог · `/task/new` черновик · `/task/:id/clarify` вопросы · `/task/:id/edit` карточка + рейтинг · `/task/:id` публичная карточка + отклики + решения бизнеса · `/ai` как работает AI · `/teams` (после 16:00).
