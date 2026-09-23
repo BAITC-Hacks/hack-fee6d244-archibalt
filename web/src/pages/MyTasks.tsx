@@ -33,7 +33,7 @@ export function MyTasks() {
       {refreshing && <span className="catalog-refresh-inline" role="status"><Spinner size="sm" /> Обновляем…</span>}
     </div>
     {error && <Alert tone="error">{error}</Alert>}
-    {tasks.length === 0 ? <EmptyState title="У вас пока нет задач" action={<ButtonLink variant="primary" to="/task/new">Описать задачу</ButtonLink>}>Опишите первую задачу, и команды смогут предложить решения.</EmptyState>
+    {tasks.length === 0 ? <EmptyState title="У вас пока нет задач" action={<ButtonLink variant="primary" to="/task/new">Обсудить задачу</ButtonLink>}>Опишите первую задачу, и команды смогут предложить решения.</EmptyState>
       : <div className="my-task-list">{tasks.map(task => <section className="detail-card my-task" key={task.id}>
         <div className="my-task-head">
           <div className={`score-tile score-${task.level}`}><strong>{task.score}</strong><span>из 100</span></div>

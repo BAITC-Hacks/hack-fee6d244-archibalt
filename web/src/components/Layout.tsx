@@ -69,7 +69,7 @@ export function Layout({ mode, setMode, children }: { mode: Mode; setMode: (mode
             { label: 'Выйти', onSelect: () => void logout('team').then(() => toast.show('Вы вышли из команды')) },
           ]} />}
           <div className="capsule-mode"><Segmented label="Режим просмотра" value={mode} options={modes} onChange={changeMode} /></div>
-          <Link className="cta-pill" to="/task/new" onClick={() => setMode('business')}>Описать задачу <span aria-hidden="true">→</span></Link>
+          <Link className="cta-pill" to="/task/new" onClick={() => setMode('business')}>Обсудить задачу <span aria-hidden="true">→</span></Link>
           <button type="button" className="capsule-burger" aria-expanded={menu} aria-controls="capsule-panel" aria-label={menu ? 'Закрыть меню' : 'Открыть меню'} onClick={() => setMenu(value => !value)}><span /><span /></button>
         </div>
       </div>

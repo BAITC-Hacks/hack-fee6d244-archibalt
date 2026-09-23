@@ -39,7 +39,7 @@ export function AiPage() {
           <p>{removed.size ? `Убрано полей: ${removed.size} (${[...removed].map(labelOf).join(', ')}). Остальное подтверждено текстом заявителя.` : 'Проверка ничего не убрала: все поля карточки опираются на текст заявителя.'}</p>
         </div></li>
       </ol>
-    </section> : <EmptyState title="Вызовов пока не было" action={<ButtonLink variant="primary" to="/task/new">Описать задачу</ButtonLink>}>После запуска сервера AI ещё не собирал карточку. Опишите задачу и ответьте на вопросы — здесь появится её путь.</EmptyState>}
+    </section> : <EmptyState title="Вызовов пока не было" action={<ButtonLink variant="primary" to="/task/new">Обсудить задачу</ButtonLink>}>После запуска сервера AI ещё не собирал карточку. Опишите задачу и ответьте на вопросы — здесь появится её путь.</EmptyState>}
 
     <section className="ai-prompts">
       <h2>Промпты и формат ответа</h2>
