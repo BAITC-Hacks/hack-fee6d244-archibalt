@@ -165,7 +165,13 @@ func TestDynamicRequiresOwner(t *testing.T) {
 	if repo.tasks[task.ID].Questions[0].Answer != "" {
 		t.Fatal("чужой запрос записал ответ")
 	}
-	seed := model.Task{Industry: "IT", Status: model.StatusClarifying, Fields: model.Fields{}.Full()}
+	// анонимный черновик (без заявителя, clarifying): вопросы доступны без входа; опубликованная задача без заявителя — 403
+	anon := model.Task{Industry: "IT", Status: model.StatusClarifying, Fields: model.Fields{}.Full()}
+	if err := repo.CreateTask(t.Context(), &anon); err != nil {
+		t.Fatal(err)
+	}
+	c.do("POST", fmt.Sprintf("/api/tasks/%d/next-question", anon.ID), body, 200, nil)
+	seed := model.Task{Industry: "IT", Status: model.StatusPublished, Fields: model.Fields{}.Full()}
 	if err := repo.CreateTask(t.Context(), &seed); err != nil {
 		t.Fatal(err)
 	}

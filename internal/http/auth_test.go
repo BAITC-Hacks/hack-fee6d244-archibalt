@@ -170,14 +170,23 @@ func TestBusinessOwner(t *testing.T) {
 		t.Fatalf("business verify: %+v %+v, команд %d→%d", own, other, teamsBefore, len(repo.teams))
 	}
 
-	// создание: только с бизнес-токеном, owner_contact — из сессии (поле в теле игнорируется), в ответе маскирован
-	c.do("POST", "/api/tasks", map[string]string{"draft_text": "Нужен бот", "industry": "IT", "owner_contact": "owner@mail.kz"}, 401, &errResp)
-	if errResp.Error != createTaskLoginMsg {
-		t.Fatalf("401 создания: %q", errResp.Error)
+	// создание без входа — анонимный черновик (owner_contact пустой, поле в теле игнорируется); собрать карточку без входа нельзя
+	var anon model.Task
+	c.do("POST", "/api/tasks", map[string]string{"draft_text": "Нужен бот", "industry": "IT", "owner_contact": "owner@mail.kz"}, 201, &anon)
+	if anon.OwnerContact != "" {
+		t.Fatalf("анонимная задача с владельцем: %q", anon.OwnerContact)
 	}
+	c.do("POST", fmt.Sprintf("/api/tasks/%d/answers", anon.ID), map[string]any{"answers": map[string]string{}}, 401, nil)
+	// вошедший заявитель присваивает анонимную задачу себе, после чего сборка доступна ему и закрыта чужим
+	c.doAuth(own.Token, "POST", fmt.Sprintf("/api/tasks/%d/owner", anon.ID), map[string]any{}, 200, &anon)
+	if anon.OwnerContact == "" {
+		t.Fatal("присвоение не записало заявителя")
+	}
+	c.doAuth(other.Token, "POST", fmt.Sprintf("/api/tasks/%d/answers", anon.ID), map[string]any{"answers": map[string]string{}}, 403, nil)
+	c.doAuth(own.Token, "POST", fmt.Sprintf("/api/tasks/%d/answers", anon.ID), map[string]any{"answers": map[string]string{}}, 200, nil)
 	var team struct{ Token string }
 	c.do("POST", "/api/auth/verify", map[string]string{"contact": "team@example.com", "code": "000000"}, 200, &team)
-	c.doAuth(team.Token, "POST", "/api/tasks", map[string]string{"draft_text": "Нужен бот", "industry": "IT"}, 401, nil) // токен команды — не заявитель
+	c.doAuth(team.Token, "POST", "/api/tasks", map[string]string{"draft_text": "Нужен бот", "industry": "IT"}, 201, nil) // токен команды — не заявитель: анонимный черновик
 	var task model.Task
 	c.doAuth(own.Token, "POST", "/api/tasks", map[string]string{"draft_text": "Нужен бот для заявок", "industry": "IT", "owner_contact": "hijack@mail.kz"}, 201, &task)
 	if task.OwnerContact != "o***@mail.kz" || repo.tasks[task.ID].OwnerContact != "owner@mail.kz" {

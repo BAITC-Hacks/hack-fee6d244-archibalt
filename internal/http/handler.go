@@ -284,11 +284,7 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 
 // createTask: заявитель обязателен — owner_contact берётся из бизнес-сессии, поле в теле игнорируется.
 func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
-	owner, ok := s.businessFromRequest(r)
-	if !ok {
-		writeError(w, http.StatusUnauthorized, createTaskLoginMsg)
-		return
-	}
+	owner, _ := s.businessFromRequest(r) // без входа — анонимная задача: разговор сразу, вход при сборке карточки
 	var req struct {
 		DraftText string `json:"draft_text"`
 		Industry  string `json:"industry"`
@@ -414,7 +410,7 @@ func (s *server) answers(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.requireOwner(w, r, t, notEditorMsg) {
+	if !s.ownerOrAnon(w, r, t, notEditorMsg, false) {
 		return
 	}
 	var req struct {
@@ -461,7 +457,7 @@ func (s *server) nextQuestion(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.requireOwner(w, r, t, notEditorMsg) {
+	if !s.ownerOrAnon(w, r, t, notEditorMsg, true) {
 		return
 	}
 	var req struct {
@@ -562,7 +558,7 @@ func (s *server) genOptions(ctx context.Context, t model.Task) ([]model.ResultOp
 // resultOptions — варианты первого проверяемого результата (владелец). Задачу не меняет.
 func (s *server) resultOptions(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.loadTask(w, r)
-	if !ok || !s.requireOwner(w, r, t, notEditorMsg) {
+	if !ok || !s.ownerOrAnon(w, r, t, notEditorMsg, true) {
 		return
 	}
 	opts, err := s.genOptions(r.Context(), t)
@@ -577,7 +573,7 @@ func (s *server) resultOptions(w http.ResponseWriter, r *http.Request) {
 // expected_result = result, success_criteria = check; дальше как PUT /fields (confirmed=false, previous_score).
 func (s *server) applyResult(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.loadTask(w, r)
-	if !ok || !s.requireOwner(w, r, t, notEditorMsg) {
+	if !ok || !s.ownerOrAnon(w, r, t, notEditorMsg, false) {
 		return
 	}
 	var req struct {
@@ -630,7 +626,7 @@ func (s *server) updateFields(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.requireOwner(w, r, t, notEditorMsg) {
+	if !s.ownerOrAnon(w, r, t, notEditorMsg, false) {
 		return
 	}
 	var req struct {
@@ -664,7 +660,7 @@ func (s *server) confirm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.requireOwner(w, r, t, notEditorMsg) {
+	if !s.ownerOrAnon(w, r, t, notEditorMsg, false) {
 		return
 	}
 	empty := true
@@ -705,6 +701,26 @@ const (
 
 // requireOwner — менять задачу и решать по её откликам может только заявитель (бизнес-токен с контактом
 // owner_contact). У задачи без заявителя (seed/старые) — 403 всем; без бизнес-токена — 401; чужой контакт — 403 deniedMsg.
+// anonDraft — задача, начатая без входа: заявителя ещё нет, карточка не собрана.
+func anonDraft(t model.Task) bool { return t.OwnerContact == "" && t.Status == model.StatusClarifying }
+
+// ownerOrAnon — как requireOwner, но анонимный черновик: при anon разрешён без входа (диалог),
+// иначе 401 «войдите» (сборка карточки, правки, публикация) — после входа задача присваивается через POST /owner.
+func (s *server) ownerOrAnon(w http.ResponseWriter, r *http.Request, t model.Task, deniedMsg string, anon bool) bool {
+	if anonDraft(t) {
+		if anon {
+			return true
+		}
+		if _, ok := s.businessFromRequest(r); ok {
+			writeError(w, http.StatusForbidden, "сначала присвойте задачу: POST /api/tasks/{id}/owner")
+			return false
+		}
+		writeError(w, http.StatusUnauthorized, "чтобы собрать карточку, войдите — беседа сохранится")
+		return false
+	}
+	return s.requireOwner(w, r, t, deniedMsg)
+}
+
 func (s *server) requireOwner(w http.ResponseWriter, r *http.Request, t model.Task, deniedMsg string) bool {
 	if t.OwnerContact == "" {
 		writeError(w, http.StatusForbidden, noOwnerMsg)
@@ -728,11 +744,26 @@ func (s *server) setOwner(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !s.requireOwner(w, r, t, "контакт заявителя может изменить только заявитель, вошедший по нему") {
-		return
-	}
 	var req struct {
 		OwnerContact string `json:"owner_contact"`
+	}
+	if anonDraft(t) { // присвоить анонимную задачу вошедшему заявителю: тело пустое или {}
+		c, ok := s.businessFromRequest(r)
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "чтобы сохранить задачу за собой, войдите")
+			return
+		}
+		if err := s.repo.SetTaskOwner(r.Context(), t.ID, c); err != nil {
+			fail(w, err, "задача не найдена")
+			return
+		}
+		t.OwnerContact = c
+		s.enrich(r.Context(), &t)
+		writeJSON(w, http.StatusOK, publicTask(t))
+		return
+	}
+	if !s.requireOwner(w, r, t, "контакт заявителя может изменить только заявитель, вошедший по нему") {
+		return
 	}
 	if !decode(w, r, &req) {
 		return

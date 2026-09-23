@@ -390,13 +390,14 @@ func TestFlow(t *testing.T) {
 	repo := newMemRepo()
 	c := testClient{t, NewHandler(repo, fakeAI{}, fakeRating, t.TempDir(), "")}
 
-	// без входа бизнеса задачу не создать; owner_contact из тела игнорируется
-	var errResp struct{ Error string }
-	c.do("POST", "/api/tasks", map[string]string{"draft_text": "Нужно приложение", "industry": "IT", "owner_contact": "x@y.kz"}, 401, &errResp)
-	if errResp.Error != createTaskLoginMsg {
-		t.Fatalf("401 без входа: %q", errResp.Error)
+	// без входа бизнеса создаётся анонимный черновик; owner_contact из тела игнорируется
+	var anon model.Task
+	c.do("POST", "/api/tasks", map[string]string{"draft_text": "Нужно приложение", "industry": "IT", "owner_contact": "x@y.kz"}, 201, &anon)
+	if anon.OwnerContact != "" {
+		t.Fatalf("анонимная задача с владельцем: %q", anon.OwnerContact)
 	}
 	biz := c.bizLogin("flow@owner.kz")
+	var errResp struct{ Error string }
 	c.doAuth(biz, "POST", "/api/tasks", map[string]string{"draft_text": "  ", "industry": "IT"}, 400, &errResp)
 	if errResp.Error == "" {
 		t.Fatal("ожидалось поле error")
