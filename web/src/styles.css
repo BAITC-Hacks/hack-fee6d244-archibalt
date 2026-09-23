@@ -319,3 +319,17 @@ p.respond-who{display:block}
 @media(max-width:1000px){.task-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.task-grid{grid-template-columns:1fr}.catalog-head{flex-direction:column;align-items:start}.catalog-filter{flex-direction:column;align-items:start;gap:6px}.catalog-filter>span{flex:none}.task-card{min-height:0}}
 @media(prefers-reduced-motion:reduce){.task-card{animation:none;transition:none}.task-card:hover{transform:none}}
+
+/* Редактор: пустые поля, кликабельные подсказки рейтинга */
+.field-empty-tag{margin-left:10px;font-size:12px;font-weight:500;color:var(--muted);font-style:italic}
+.form-field{transition:background-color .4s var(--ease);border-radius:var(--radius-sm)}
+.form-field.is-flash{background:var(--accent-soft)}
+button.rating-next{width:100%;text-align:left;font:inherit;font-size:12px;color:inherit;cursor:pointer;border-top:0;border-right:0;border-bottom:0;transition:background-color .15s var(--ease)}
+button.rating-next:hover{background:#e2eef2}
+.rating-next-go{font-weight:600;color:var(--accent-dark)!important}
+.missing-list li:has(.missing-pick){padding:0}
+.missing-pick{display:flex;justify-content:space-between;gap:12px;width:100%;padding:11px 6px;margin:0 -6px;border:0;border-radius:var(--radius-sm);background:transparent;font:inherit;font-size:12px;color:inherit;text-align:left;cursor:pointer;transition:background-color .15s var(--ease)}
+.missing-pick:hover{background:var(--sunken)}
+.missing-pick>span{font-weight:700;color:var(--accent-dark);white-space:nowrap;order:2}
+.missing-pick strong{display:block;line-height:1.35}.missing-pick small{display:block;color:var(--muted);line-height:1.4;margin-top:4px}
+.rating-delta{animation:q-in .25s var(--ease) both}

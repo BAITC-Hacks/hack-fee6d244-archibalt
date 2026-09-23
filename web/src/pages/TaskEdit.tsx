@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { FieldKey } from '../api'
 import { useNavigate, useParams } from 'react-router-dom'
 import { api, json, withAuth, type Fields, type Task } from '../api'
 import { PageError } from '../components/PageState'
@@ -37,7 +38,7 @@ export function TaskEdit() {
       <form className="paper-form edit-form" onSubmit={event => { event.preventDefault(); void save() }}>
         {submitError && <Alert tone="error">{submitError}</Alert>}
         <div className="form-section-title"><h2>Карточка задачи</h2><span>Все сведения редактируемы</span></div>
-        {fieldSpecs.map(spec => <Field key={spec.key} id={spec.key} className="form-field" label={spec.label} hint={missingHint(task, spec.key)}>
+        {fieldSpecs.map(spec => <Field key={spec.key} id={spec.key} className="form-field" label={<>{spec.label}{!task.fields[spec.key]?.trim() && <span className="field-empty-tag">Не указано — AI не добавил фактов</span>}</>} hint={missingHint(task, spec.key)}>
           {spec.key === 'title' || spec.key === 'contact'
             ? <Input value={fields[spec.key] || ''} onChange={event => setFields({ ...fields, [spec.key]: event.target.value })} placeholder={spec.hint} />
             : <Textarea minRows={2} value={fields[spec.key] || ''} onChange={event => setFields({ ...fields, [spec.key]: event.target.value })} placeholder={spec.hint} />}
@@ -48,9 +49,20 @@ export function TaskEdit() {
         </div>
         <p className="field-help">Задача появится в каталоге только после вашего подтверждения.</p>
       </form>
-      <RatingPanel task={task} preliminary={!task.confirmed} delta={delta} />
+      <RatingPanel task={task} preliminary={!task.confirmed} delta={delta} onPick={key => focusField(fields, key)} />
     </div>
   </div>
+}
+
+/** Клик по подсказке «что добавить» → прокрутка и фокус на первое подходящее поле (пустое — в приоритете). */
+function focusField(fields: Fields, key: string) {
+  const candidates = fieldSpecs.map(spec => spec.key).filter(field => ratingKey(field) === key) as FieldKey[]
+  const target = candidates.find(field => !fields[field]?.trim()) ?? candidates[0]
+  const node = target && document.getElementById(target)
+  if (!node) return
+  node.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'center' })
+  window.setTimeout(() => (node as HTMLElement).focus({ preventScroll: true }), 250)
+  node.closest('.form-field')?.classList.add('is-flash'); window.setTimeout(() => node.closest('.form-field')?.classList.remove('is-flash'), 1400)
 }
 
 function missingHint(task: Task, field: string) {
