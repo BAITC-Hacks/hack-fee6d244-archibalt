@@ -17,8 +17,9 @@ type Client interface {
 	// Card собирает карточку; qs — вопросы с заполненным Answer.
 	Card(ctx context.Context, draft string, industry string, qs []model.Question) (model.CardResult, error)
 	// NextQuestion — пошаговый режим: следующий вопрос с учётом уже заданных (asked, с ответами)
-	// или Done. Не меньше MinDynamicQuestions и не больше MaxDynamicQuestions вопросов.
-	NextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error)
+	// или Done. Не меньше MinDynamicQuestions и не больше MaxDynamicQuestions вопросов; more — явный запрос
+	// «спросить ещё»: done модели игнорируется, потолок поднимается до MaxExtraQuestions.
+	NextQuestion(ctx context.Context, draft, industry string, asked []model.Question, more bool) (model.NextQuestionResult, error)
 	// ResultOptions — 2–3 варианта первого проверяемого результата (малый → средний) по черновику и ответам qs.
 	ResultOptions(ctx context.Context, draft, industry string, qs []model.Question) (model.ResultOptionsResult, error)
 	// Mode — режим, фактически использованный в последнем вызове.
@@ -43,6 +44,8 @@ type Info struct {
 const (
 	MinDynamicQuestions = 3
 	MaxDynamicQuestions = 5
+	MaxExtraQuestions   = 8 // потолок по явному запросу «спросить ещё»
+	maxAsksPerField     = 2 // поле без сведений в ответе переспрашивается не больше 2 раз
 )
 
 const defaultEndpoint = "https://api.openai.com/v1/responses"
@@ -65,7 +68,7 @@ func newClient(apiKey, modelName, endpoint string) *fallback {
 type backend interface {
 	questions(ctx context.Context, draft, industry string) (model.QuestionsResult, error)
 	card(ctx context.Context, draft, industry string, qs []model.Question) (model.CardResult, error)
-	nextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error)
+	nextQuestion(ctx context.Context, draft, industry string, asked []model.Question, more bool) (model.NextQuestionResult, error)
 	resultOptions(ctx context.Context, draft, industry string, qs []model.Question) (model.ResultOptionsResult, error)
 }
 
@@ -95,17 +98,17 @@ func (f *fallback) Card(ctx context.Context, draft, industry string, qs []model.
 	})
 }
 
-// NextQuestion: при ≥ MaxDynamicQuestions — done без вызова модели; иначе backend + правила finishNext.
-func (f *fallback) NextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error) {
-	if len(asked) >= MaxDynamicQuestions {
-		return finishNext(model.NextQuestionResult{}, asked, draft), nil
+// NextQuestion: при достижении потолка (5, по more — 8) — done без вызова модели; иначе backend + правила finishNext.
+func (f *fallback) NextQuestion(ctx context.Context, draft, industry string, asked []model.Question, more bool) (model.NextQuestionResult, error) {
+	if len(asked) >= questionCap(more) {
+		return finishNext(model.NextQuestionResult{}, asked, draft, more), nil
 	}
 	return run(f, func(b backend) (model.NextQuestionResult, error) {
-		r, err := b.nextQuestion(ctx, draft, industry, asked)
+		r, err := b.nextQuestion(ctx, draft, industry, asked, more)
 		if err != nil {
 			return r, err
 		}
-		return finishNext(r, asked, draft), nil
+		return finishNext(r, asked, draft, more), nil
 	})
 }
 

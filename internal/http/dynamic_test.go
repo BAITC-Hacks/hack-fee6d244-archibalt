@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/model"
@@ -69,10 +71,19 @@ func TestDynamicQuestions(t *testing.T) {
 	if len(stored.Questions) != r.Asked || stored.Questions[len(stored.Questions)-1].Answer == "" && answers[stored.Questions[len(stored.Questions)-1].FieldKey] != "" {
 		t.Fatalf("ответ на последний вопрос не сохранён: %+v", stored.Questions)
 	}
-	// повторный вызов после done ничего не меняет
-	c.doAuth(biz, "POST", path+"/next-question", nil, 200, &r)
-	if !r.Done || len(repo.tasks[task.ID].Questions) != len(stored.Questions) {
-		t.Fatalf("после done: %+v", r)
+	// «спросить ещё» (без answer) после done — ещё вопрос; так до 8 всего, дальше done с причиной
+	n := len(stored.Questions)
+	for n < 8 {
+		c.doAuth(biz, "POST", path+"/next-question", nil, 200, &r)
+		n++
+		if r.Done || r.Question == nil || r.Asked != n || len(repo.tasks[task.ID].Questions) != n {
+			t.Fatalf("more после done, asked=%d: %+v", n, r)
+		}
+	}
+	r = nextResp{}
+	c.doAuth(biz, "POST", path+"/next-question", map[string]bool{"more": true}, 200, &r)
+	if !r.Done || r.Reason == "" || r.Asked != 8 || len(repo.tasks[task.ID].Questions) != 8 {
+		t.Fatalf("после 8 ожидался done: %+v", r)
 	}
 
 	// карточка из сохранённых ответов: {} и {answers:{}}
@@ -85,7 +96,8 @@ func TestDynamicQuestions(t *testing.T) {
 	}
 }
 
-// Пропуск: пустой answer сохраняется как "" и поле больше не спрашивается; done только после критичных полей.
+// Пропуск: пустой answer сохраняется как "", поле остаётся пробелом и переспрашивается (не больше 2 раз);
+// done только после критичных полей и не позже 5 вопросов.
 func TestDynamicSkipAndMax(t *testing.T) {
 	repo := newMemRepo()
 	c := testClient{t, NewHandler(repo, fakeAI{}, fakeRating, t.TempDir(), "")}
@@ -93,7 +105,7 @@ func TestDynamicSkipAndMax(t *testing.T) {
 	var task model.Task
 	c.doAuth(biz, "POST", "/api/tasks", map[string]string{"draft_text": "Нужно приложение", "industry": "IT", "mode": "dynamic"}, 201, &task)
 	path := fmt.Sprintf("/api/tasks/%d/next-question", task.ID)
-	seen := map[model.FieldKey]bool{task.Questions[0].FieldKey: true}
+	count := map[model.FieldKey]int{task.Questions[0].FieldKey: 1}
 	var r nextResp
 	steps := 0
 	for !r.Done {
@@ -103,19 +115,37 @@ func TestDynamicSkipAndMax(t *testing.T) {
 			t.Fatal("больше 5 вопросов")
 		}
 		if !r.Done {
-			if seen[r.Question.FieldKey] {
-				t.Fatalf("повтор пропущенного поля %s", r.Question.FieldKey)
+			if count[r.Question.FieldKey]++; count[r.Question.FieldKey] > 2 {
+				t.Fatalf("поле %s спрошено больше 2 раз", r.Question.FieldKey)
 			}
-			seen[r.Question.FieldKey] = true
 		}
 	}
 	if r.Asked < 3 || r.Asked > 5 {
 		t.Fatalf("asked=%d вне 3–5", r.Asked)
 	}
-	for _, k := range []model.FieldKey{model.FieldData, model.FieldSuccessCriteria, model.FieldContact} {
-		if !seen[k] {
-			t.Errorf("критичное поле %s не спрошено до done", k)
-		}
+}
+
+// Шум («здравствуйте», «пока не знаю») не закрывает поле: оно остаётся в missing_fields и спрашивается
+// ещё раз другой формулировкой; превью поле не заполняет.
+func TestDynamicNoiseReasks(t *testing.T) {
+	repo := newMemRepo()
+	c := testClient{t, NewHandler(repo, fakeAI{}, fakeRating, t.TempDir(), "")}
+	biz := c.bizLogin("noise@owner.kz")
+	var task model.Task
+	c.doAuth(biz, "POST", "/api/tasks", map[string]string{"draft_text": "фвфовфыов о", "industry": "education", "mode": "dynamic"}, 201, &task)
+	first := task.Questions[0]
+	path := fmt.Sprintf("/api/tasks/%d/next-question", task.ID)
+	var r nextResp
+	c.doAuth(biz, "POST", path, map[string]string{"answer": "здравствуйте"}, 200, &r)
+	if r.Done || r.Question == nil || r.Question.FieldKey != first.FieldKey || r.Question.Text == first.Text {
+		t.Fatalf("ожидалось переспрашивание %s иначе: %+v", first.FieldKey, r.Question)
+	}
+	if !slices.Contains(r.Missing, first.FieldKey) || strings.Contains(r.CardPreview[first.FieldKey], "здравствуйте") || r.CardPreview[model.FieldContext] != "" {
+		t.Fatalf("поле после шума закрыто: missing=%v preview=%q", r.Missing, r.CardPreview[first.FieldKey])
+	}
+	c.doAuth(biz, "POST", path, map[string]string{"answer": "пока не знаю"}, 200, &r)
+	if r.Done || r.Question == nil || r.Question.FieldKey == first.FieldKey {
+		t.Fatalf("третий раз то же поле или done: %+v", r)
 	}
 }
 

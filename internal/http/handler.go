@@ -310,7 +310,7 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 
 	var qs []model.Question
 	if dynamic {
-		nr, err := s.ai.NextQuestion(r.Context(), req.DraftText, req.Industry, nil)
+		nr, err := s.ai.NextQuestion(r.Context(), req.DraftText, req.Industry, nil, false)
 		if err != nil || nr.Question == nil {
 			writeError(w, http.StatusBadGateway, "AI недоступен: не удалось получить первый вопрос")
 			return
@@ -454,7 +454,8 @@ func (s *server) answers(w http.ResponseWriter, r *http.Request) {
 
 // nextQuestion — пошаговый режим: записать ответ на последний вопрос (если передан; "" = пропуск),
 // затем спросить AI следующий. Вопрос добавляется в task.questions; при done задача не меняется
-// (кроме записанного ответа), карточку собирает POST /answers.
+// (кроме записанного ответа), карточку собирает POST /answers. Запрос без answer (или {"more": true}) —
+// явное «спросить ещё»: done модели не мешает, следующий вопрос по пробелам вплоть до 8 всего.
 func (s *server) nextQuestion(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.loadTask(w, r)
 	if !ok {
@@ -465,6 +466,7 @@ func (s *server) nextQuestion(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Answer *string `json:"answer"`
+		More   bool    `json:"more"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	raw, err := io.ReadAll(r.Body)
@@ -484,7 +486,8 @@ func (s *server) nextQuestion(w http.ResponseWriter, r *http.Request) {
 		answered = true
 	}
 
-	nr, err := s.ai.NextQuestion(r.Context(), t.DraftText, t.Industry, t.Questions)
+	more := req.More || (req.Answer == nil && len(t.Questions) > 0)
+	nr, err := s.ai.NextQuestion(r.Context(), t.DraftText, t.Industry, t.Questions, more)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "AI недоступен: "+err.Error())
 		return
@@ -520,11 +523,13 @@ func (s *server) nextQuestion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// previewFields — дешёвая живая карточка без вызова AI: контекст = черновик, ответ на вопрос поля
+// previewFields — дешёвая живая карточка без вызова AI: контекст = черновик (если он не бессмыслица), ответ на вопрос поля
 // кладётся в это поле (несколько ответов на одно поле — через пробел). Настоящую собирает POST /answers.
 func previewFields(t model.Task) model.Fields {
 	f := model.Fields{}.Full()
-	f[model.FieldContext] = t.DraftText
+	if !rating.IsGibberish(t.DraftText) {
+		f[model.FieldContext] = t.DraftText // бессмыслица («фвфовфыов о») — не контекст, поле остаётся пробелом
+	}
 	seen := map[model.FieldKey]bool{}
 	for _, q := range t.Questions {
 		a := strings.TrimSpace(q.Answer)
