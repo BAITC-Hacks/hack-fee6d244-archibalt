@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import type { AiInfo, CatalogResponse } from '../api'
+import type { CatalogResponse } from '../api'
 import { AnimatedBackground } from '../components/AnimatedBackground'
 import { useExample } from '../components/BeforeAfter'
 import { ScrollStory } from '../components/ScrollStory'
 import { Reveal } from '../components/Reveal'
-import { plural, readDraft, saveDraft, type Mode } from '../fields'
+import { capitalize, plural, readDraft, saveDraft, type Mode } from '../fields'
 import { ButtonLink, Textarea } from '../ui'
 import { useLoad } from '../useLoad'
 import { DRAFT_PLACEHOLDER } from './TaskNew'
@@ -36,7 +36,6 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
   const [draft, setDraft] = useState(() => readDraft().text)
   const ready = draft.trim().length >= MIN_DRAFT
   const { data: catalog } = useLoad<CatalogResponse>('/tasks', { tasks: [], industries: [], levels: [] })
-  const { data: ai } = useLoad<AiInfo | null>('/ai', null)
   const example = useExample()
   const first = useRef(true)
 
@@ -53,19 +52,20 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
     navigate('/task/new', { state: { draft } })
   }
 
-  const stats = catalog.stats
-  const taskCount = stats?.tasks ?? catalog.tasks.length
   const rankNow = example.task?.rank || catalog.tasks.findIndex(task => task.id === 1) + 1 || undefined
   const rankAfter = 1 + catalog.tasks.filter(task => task.id !== 1 && task.score > example.after).length
-  const questionCount = ai?.last_call?.questions?.length
+  const top = catalog.tasks.slice(0, 3)
+  const GAP: Record<string, string> = { data: 'данные', expected_result: 'результат', success_criteria: 'критерии', constraints: 'сроки', business_link: 'контакт', users: 'пользователи' }
+  const gapList = example.added.map(item => GAP[item.key]).filter(Boolean)
+  const gaps = gapList.length > 1 ? `${gapList.slice(0, -1).join(', ')} и ${gapList[gapList.length - 1]}` : gapList[0] || 'данные и сроки'
 
   return <div className="landing">
     <section className="landing-hero">
       <AnimatedBackground />
       <div className="container landing-hero-grid">
       <div className="landing-hero-copy">
-        <h1>Опишите проблему. <em>Получите решения.</em></h1>
-        <p className="lead">Archibalt превращает сырой запрос бизнеса в понятную задачу для студенческих команд. AI задаёт вопросы и не выдумывает факты, оценка готовности 0–100 объясняет, что добавить.</p>
+        <h1>Сырой запрос → задача с оценкой <span className="nowrap">0–100</span>. <em>Команды выбирают сами.</em></h1>
+        <p className="lead">AI задаёт 3–4 вопроса и собирает карточку только из ваших слов: 0 выдуманных фактов. Оценка объясняет, что добавить, а задача попадает в открытый каталог, где студенческие команды откликаются сами.</p>
         <form className="hero-input" onSubmit={submit}>
           <Textarea aria-label="Опишите задачу своими словами" minRows={3} value={draft} onChange={event => setDraft(event.target.value)}
             onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit() }} placeholder={DRAFT_PLACEHOLDER} />
@@ -74,19 +74,27 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
         <p className="hero-micro">AI задаст 3–4 вопроса и соберёт карточку. Ничего не придумает.</p>
         <div className="hero-secondary">
           <Link className="text-link" to="/catalog" onClick={() => setMode('team')}>Смотреть каталог задач</Link>
-          {taskCount > 0 && <span className="hero-proof">{taskCount} {plural(taskCount, 'задача', 'задачи', 'задач')} в каталоге{stats ? ` · ${stats.proposals} ${plural(stats.proposals, 'отклик', 'отклика', 'откликов')}` : ''}{stats?.teams ? ` · ${stats.teams} ${plural(stats.teams, 'команда', 'команды', 'команд')}` : ''} · запуск одной командой</span>}
         </div>
       </div>
       <div className="hero-visual">
-        <div className="hero-score glass" role="img" aria-label={`Пример: готовность задачи ${example.score} из 100 после ответов становится ${example.after}`}>
+        <div className="hero-score glass">
           <HeroRing from={example.score} to={example.after} />
-          <p className="hero-score-title">{example.title}</p>
-          <p className="hero-score-note">пример из каталога</p>
+          <dl className="hero-ba">
+            <div><dt>Было {example.score}</dt><dd>не указаны {gaps}</dd></div>
+            <div className="is-after"><dt>Стало {example.after}</dt><dd>{rankAfter ? `#${rankAfter} в каталоге` : 'выше в каталоге'}</dd></div>
+          </dl>
+          <p className="hero-score-note">пример: {example.title.toLowerCase()}</p>
+          <span className="metric-chip glass chip-a"><strong>{example.score} → {example.after}</strong> готовность</span>
+          {rankNow ? <span className="metric-chip glass chip-b"><strong>#{rankNow} → #{rankAfter}</strong> место после ответов</span> : null}
         </div>
-        <span className="metric-chip glass chip-a"><strong>{example.score} → {example.after}</strong> готовность</span>
-        {rankNow ? <span className="metric-chip glass chip-b"><strong>#{rankNow} → #{rankAfter}</strong> в каталоге</span> : null}
-        <span className="metric-chip glass chip-c"><strong>{questionCount ? `${questionCount} ${plural(questionCount, 'вопрос', 'вопроса', 'вопросов')}` : '3–4 вопроса'}</strong> · около 3 минут</span>
-        <span className="metric-chip glass chip-d"><strong>0</strong> выдуманных фактов</span>
+        {top.length > 0 && <div className="hero-catalog glass">
+          <p className="hero-catalog-head"><span>Открытый каталог</span><Link to="/catalog">Все задачи →</Link></p>
+          <ol>{top.map(task => <li key={task.id}>
+            <strong className={`hero-catalog-score score-${task.level}`}>{task.score}</strong>
+            <Link to={`/task/${task.id}`}>{capitalize(task.fields.title.replace(/^Демо:\s*/, ''))}</Link>
+            <span>{task.proposals_count ? `${task.proposals_count} ${plural(task.proposals_count, 'отклик', 'отклика', 'откликов')}` : 'без откликов'}</span>
+          </li>)}</ol>
+        </div>}
       </div>
     </div></section>
 
