@@ -17,6 +17,7 @@ import (
 
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/ai"
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/model"
+	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/rating"
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/store"
 )
 
@@ -527,11 +528,8 @@ func previewFields(t model.Task) model.Fields {
 	seen := map[model.FieldKey]bool{}
 	for _, q := range t.Questions {
 		a := strings.TrimSpace(q.Answer)
-		if a == "" {
-			continue
-		}
-		if _, ok := model.FieldLabels[q.FieldKey]; !ok {
-			continue
+		if _, ok := model.FieldLabels[q.FieldKey]; !ok || rating.IsNoise(q.FieldKey, a) {
+			continue // приветствие, «не знаю», «пока ничего» — не факт о задаче, поле остаётся пробелом
 		}
 		if seen[q.FieldKey] {
 			f[q.FieldKey] += " " + a
