@@ -63,6 +63,11 @@ func run() error {
 	if err := st.SeedIfEmpty(ctx, cfg.seedDir, rating.Compute); err != nil {
 		return err
 	}
+	if n, err := st.RecomputeRatings(ctx, rating.Compute); err != nil {
+		return err
+	} else {
+		slog.Info("рейтинги пересчитаны текущей формулой", "tasks", n)
+	}
 
 	aiClient := ai.New(cfg.openAIKey, cfg.openAIModel) // без ключа — mock-режим
 

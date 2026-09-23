@@ -383,3 +383,44 @@ func (s *Store) ConfirmStage(ctx context.Context, id int) (model.Proposal, error
 	}
 	return s.GetProposal(ctx, id)
 }
+
+// RecomputeRatings пересчитывает score и rating всех задач текущей формулой.
+// Вызывается при старте: формула детерминирована, а старый том БД мог быть посчитан прежней версией.
+func (s *Store) RecomputeRatings(ctx context.Context, compute func(model.Fields, bool) model.Rating) (int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, fields, confirmed FROM tasks`)
+	if err != nil {
+		return 0, fmt.Errorf("recompute select: %w", err)
+	}
+	type row struct {
+		id        int
+		fields    []byte
+		confirmed bool
+	}
+	var all []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.fields, &r.confirmed); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		all = append(all, r)
+	}
+	rows.Close()
+	n := 0
+	for _, r := range all {
+		var f model.Fields
+		if err := json.Unmarshal(r.fields, &f); err != nil {
+			return n, fmt.Errorf("recompute task %d fields: %w", r.id, err)
+		}
+		rt := compute(f.Full(), r.confirmed)
+		rj, err := json.Marshal(rt)
+		if err != nil {
+			return n, err
+		}
+		if _, err := s.db.ExecContext(ctx, `UPDATE tasks SET score = $2, rating = $3::jsonb WHERE id = $1`, r.id, rt.Score, string(rj)); err != nil {
+			return n, fmt.Errorf("recompute task %d: %w", r.id, err)
+		}
+		n++
+	}
+	return n, nil
+}
