@@ -66,7 +66,7 @@ func TestTeamDecisions(t *testing.T) {
 	c.do("POST", a+"/accept", nil, 401, nil)
 	c.doAuth(f.owner, "POST", a+"/accept", nil, 401, nil) // бизнес-токен — не команда
 	c.doAuth(f.teamB, "POST", a+"/accept", nil, 403, nil)
-	c.doAuth(f.owner, "POST", a+"/confirm-stage", nil, 400, nil) // выбрана, но не принята
+	c.doAuth(f.owner, "POST", a+"/confirm-stage", nil, 200, nil) // выбрана — этап можно подтвердить и до принятия (UI без кнопки «Принять»)
 	var p model.Proposal
 	c.doAuth(f.teamA, "POST", a+"/accept", nil, 200, &p)
 	if p.Status != model.ProposalAccepted || p.AcceptedAt == nil {

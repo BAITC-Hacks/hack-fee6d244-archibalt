@@ -438,7 +438,7 @@ func TestFlow(t *testing.T) {
 	if prop.Status != model.ProposalSelected {
 		t.Fatalf("select: %+v", prop)
 	}
-	c.do("POST", ppath+"/confirm-stage", nil, 400, nil) // выбрана, но команда ещё не приняла проект
+	c.do("POST", ppath+"/confirm-stage", nil, 200, nil) // выбрана — этап подтверждается и до принятия командой
 	c.doAuth(tok, "POST", ppath+"/accept", nil, 200, &prop)
 	c.do("POST", ppath+"/confirm-stage", nil, 200, &prop)
 	c.do("POST", ppath+"/confirm-stage", nil, 200, &prop) // идемпотентно

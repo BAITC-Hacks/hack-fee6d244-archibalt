@@ -615,8 +615,8 @@ func (s *server) confirmStage(w http.ResponseWriter, r *http.Request) {
 	if !s.authorizeDecision(w, r, p.TaskID) {
 		return
 	}
-	if p.Status != model.ProposalAccepted {
-		writeError(w, http.StatusBadRequest, "этап можно подтвердить только после того, как команда приняла проект")
+	if p.Status != model.ProposalAccepted && p.Status != model.ProposalSelected { // ponytail: selected допускаем, пока в UI нет кнопки «Принять»; accepted = двустороннее принятие
+		writeError(w, http.StatusBadRequest, "этап можно подтвердить только у выбранной или принятой командой заявки")
 		return
 	}
 	if p, err = s.repo.ConfirmStage(r.Context(), id); err != nil {
