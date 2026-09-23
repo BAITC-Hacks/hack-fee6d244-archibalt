@@ -5,6 +5,7 @@ import { maskContact, useSession } from '../session'
 import { Button, Logo, Segmented, useToast } from '../ui'
 import { SessionMenu } from './SessionMenu'
 import { useStartChat } from '../pages/TaskNew'
+import { StudentNotifications, StudentProvider } from './StudentHub'
 
 export function ScrollToTop() { const { pathname, hash } = useLocation(); useEffect(() => { if (!hash) window.scrollTo(0, 0) }, [pathname, hash]); return null }
 
@@ -57,18 +58,20 @@ export function Layout({ mode, setMode, children }: { mode: Mode; setMode: (mode
     ? <>{ANCHORS.map(item => <a key={item.id} href={`#${item.id}`} className={active === item.id ? 'is-active' : undefined} onClick={() => setMenu(false)}>{item.label}</a>)}<NavLink to="/catalog">Каталог задач</NavLink></>
     : <><NavLink to="/catalog">{mode === 'team' ? 'Найти проект' : 'Каталог задач'}</NavLink>{mode === 'business' && <NavLink to="/business">Мои задачи</NavLink>}<NavLink to="/teams">{mode === 'team' ? 'Сообщество' : 'Команды'}</NavLink><NavLink to="/ai">Как работает AI</NavLink></>
   const login = !(mode === 'team' ? team : business) && <Button variant="ghost" size="sm" disabled={checking} aria-haspopup="dialog" aria-label={mode === 'team' ? 'Войти как команда' : 'Войти как бизнес'} onClick={() => { setMenu(false); requestLogin(mode) }}>Войти</Button>
-  return <>
+  return <StudentProvider key={team?.team.id ?? 'guest'} active={mode === 'team'}>
     <a className="skip-link" href="#main">Перейти к содержимому</a>
     <header className={`topbar${landing ? ' is-landing' : ''}`}>
       <div className={`capsule${glass || menu ? ' is-glass' : ''}`}>
         <Link className="brand" to="/" aria-label="Archibalt — на главную"><Logo /></Link>
         <nav className="capsule-nav" aria-label="Основная навигация">{links}</nav>
         <div className="capsule-right">
+          {mode === 'team' && <StudentNotifications />}
           {mode === 'business' && business && <SessionMenu kind="business" title="Вы вошли как заявитель" label={maskContact(business.contact)} items={[
             { label: 'Мои задачи', onSelect: () => navigate('/business') },
             { label: 'Выйти', onSelect: () => void logout('business').then(() => toast.show('Вы вышли из режима заявителя')) },
           ]} />}
           {mode === 'team' && team && <SessionMenu kind="team" title="Вы вошли как команда" label={team.team.name} items={[
+            { label: 'Мои отклики', onSelect: () => navigate('/catalog#my-proposals') },
             { label: 'Выйти', onSelect: () => void logout('team').then(() => toast.show('Вы вышли из команды')) },
           ]} />}
           {login && <div className="capsule-mode">{login}</div>}
@@ -85,5 +88,5 @@ export function Layout({ mode, setMode, children }: { mode: Mode; setMode: (mode
     </header>
     <main id="main" className={landing ? 'main-landing' : 'main-page'}>{children}</main>
     <footer className="site-footer"><div className="container"><span>Archibalt · AI Sana</span><span>Бизнес ставит задачу. Студенты предлагают решения.</span></div></footer>
-  </>
+  </StudentProvider>
 }

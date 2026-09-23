@@ -7,8 +7,13 @@ CREATE TABLE IF NOT EXISTS teams (
     skills    text[] NOT NULL DEFAULT '{}',
     interests text[] NOT NULL DEFAULT '{}',
     tech      text[] NOT NULL DEFAULT '{}',
+    experience text   NOT NULL DEFAULT '',
+    achievements text NOT NULL DEFAULT '',
     points    int    NOT NULL DEFAULT 0
 );
+
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS experience text NOT NULL DEFAULT '';
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS achievements text NOT NULL DEFAULT '';
 
 -- Вход команды по одноразовому коду: contact хранится нормализованным (lower, телефон с «+»).
 -- ADD COLUMN IF NOT EXISTS — идемпотентно на существующей БД с данными; у seed-команд contact = NULL.
@@ -46,13 +51,18 @@ CREATE TABLE IF NOT EXISTS proposals (
     link            text        NOT NULL,
     status          text        NOT NULL DEFAULT 'new',
     stage_confirmed bool        NOT NULL DEFAULT false,
-    created_at      timestamptz NOT NULL DEFAULT now()
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    quick           bool        NOT NULL DEFAULT false,
+    profile_snapshot jsonb      NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX IF NOT EXISTS proposals_task_idx ON proposals (task_id);
 
 -- Двустороннее принятие: момент, когда команда подтвердила выбранный отклик (status = 'accepted').
 ALTER TABLE proposals ADD COLUMN IF NOT EXISTS accepted_at timestamptz NULL;
+ALTER TABLE proposals ADD COLUMN IF NOT EXISTS quick bool NOT NULL DEFAULT false;
+ALTER TABLE proposals ADD COLUMN IF NOT EXISTS profile_snapshot jsonb NOT NULL DEFAULT '{}';
+CREATE UNIQUE INDEX IF NOT EXISTS proposals_quick_task_team_idx ON proposals (task_id, team_id) WHERE quick;
 
 -- Чат по отклику: команда отклика ↔ заявитель задачи.
 CREATE TABLE IF NOT EXISTS messages (

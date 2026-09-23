@@ -146,6 +146,14 @@ func (m *memRepo) CreateProposal(_ context.Context, p *model.Proposal) error {
 	if _, tok := m.tasks[p.TaskID]; !ok || !tok {
 		return store.ErrNotFound
 	}
+	if p.Quick {
+		for _, existing := range m.proposals {
+			if existing.TaskID == p.TaskID && existing.Team.ID == p.Team.ID && existing.Quick {
+				*p = existing
+				return nil
+			}
+		}
+	}
 	m.nextProp++
 	p.ID, p.Team.Name, p.Status, p.CreatedAt = m.nextProp, team.Name, model.ProposalNew, time.Now()
 	m.proposals[p.ID] = *p
@@ -176,6 +184,21 @@ func (m *memRepo) UpdateProposalStatus(_ context.Context, id int, st model.Propo
 		now := time.Now()
 		p.AcceptedAt = &now
 	}
+	m.proposals[id] = p
+	return p, nil
+}
+
+func (m *memRepo) UpdateProposal(_ context.Context, id, teamID int, update model.Proposal) (model.Proposal, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.proposals[id]
+	if !ok {
+		return p, store.ErrNotFound
+	}
+	if p.Team.ID != teamID {
+		return p, store.ErrNotFound
+	}
+	p.Idea, p.Plan, p.Deadline, p.Link = update.Idea, update.Plan, update.Deadline, update.Link
 	m.proposals[id] = p
 	return p, nil
 }
@@ -243,6 +266,19 @@ func (m *memRepo) SetTeamContact(_ context.Context, id int, contact string) erro
 	t.Contact = contact
 	m.teams[id] = t
 	return nil
+}
+
+func (m *memRepo) UpdateTeamProfile(_ context.Context, id int, skills, interests, tech []string, experience, achievements string) (model.Team, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.teams[id]
+	if !ok {
+		return t, store.ErrNotFound
+	}
+	t.Skills, t.Interests, t.Tech = append([]string{}, skills...), append([]string{}, interests...), append([]string{}, tech...)
+	t.Experience, t.Achievements = experience, achievements
+	m.teams[id] = t
+	return t, nil
 }
 
 func (m *memRepo) ListProposalsByTeam(_ context.Context, teamID int) ([]model.Proposal, error) {
@@ -567,10 +603,10 @@ func TestSPAFallback(t *testing.T) {
 func TestRecommend(t *testing.T) {
 	team := model.Team{Skills: []string{"анализ данных"}, Tech: []string{"Python"}}
 	tasks := []model.Task{
-		{ID: 1, Rating: model.Rating{Score: 80}, Fields: model.Fields{model.FieldData: "Выгрузка данных продаж"}},
-		{ID: 2, Rating: model.Rating{Score: 20}, Fields: model.Fields{model.FieldData: "данные"}},               // ниже порога 40
-		{ID: 3, Rating: model.Rating{Score: 95}, Fields: model.Fields{model.FieldNeed: "мобильное приложение"}}, // нет пересечения
-		{ID: 4, Rating: model.Rating{Score: 50}, Fields: model.Fields{model.FieldConstraints: "Python, анализ данных"}},
+		{ID: 1, Status: model.StatusPublished, Rating: model.Rating{Score: 80}, Fields: model.Fields{model.FieldData: "Выгрузка данных продаж"}},
+		{ID: 2, Status: model.StatusPublished, Rating: model.Rating{Score: 20}, Fields: model.Fields{model.FieldData: "данные"}},               // ниже порога 40
+		{ID: 3, Status: model.StatusPublished, Rating: model.Rating{Score: 95}, Fields: model.Fields{model.FieldNeed: "мобильное приложение"}}, // нет пересечения
+		{ID: 4, Status: model.StatusPublished, Rating: model.Rating{Score: 50}, Fields: model.Fields{model.FieldConstraints: "Python, анализ данных"}},
 	}
 	got := recommend(team, tasks, 5)
 	if len(got) != 2 || got[0].ID != 4 || got[1].ID != 1 {

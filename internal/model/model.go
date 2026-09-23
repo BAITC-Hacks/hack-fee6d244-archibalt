@@ -138,6 +138,8 @@ type Task struct {
 	ProposalsCount  int  `json:"proposals_count"`   // число откликов (в каталоге)
 	NextLevelGain   int  `json:"next_level_gain"`   // баллов до следующего уровня (40/70/90); 0 при 90+
 	HasVisual       bool `json:"has_visual"`        // есть визуальный концепт (только в GET /api/tasks/{id})
+	// MatchReasons заполняется только в персональной выдаче рекомендаций.
+	MatchReasons []string `json:"match_reasons,omitempty"`
 }
 
 type ProposalStatus string
@@ -159,18 +161,32 @@ type TeamRef struct {
 }
 
 type Proposal struct {
-	ID             int            `json:"id"`
-	TaskID         int            `json:"task_id"`
-	Team           TeamRef        `json:"team"`
-	Idea           string         `json:"idea"`
-	Plan           string         `json:"plan"`
-	Deadline       string         `json:"deadline"`
-	Link           string         `json:"link"`
-	Status         ProposalStatus `json:"status"`
-	StageConfirmed bool           `json:"stage_confirmed"`
-	CreatedAt      time.Time      `json:"created_at"`
-	AcceptedAt     *time.Time     `json:"accepted_at"`    // когда команда приняла проект (status accepted)
-	MessagesCount  int            `json:"messages_count"` // сообщений в чате отклика
+	ID              int                  `json:"id"`
+	TaskID          int                  `json:"task_id"`
+	Team            TeamRef              `json:"team"`
+	Idea            string               `json:"idea"`
+	Plan            string               `json:"plan"`
+	Deadline        string               `json:"deadline"`
+	Link            string               `json:"link"`
+	Status          ProposalStatus       `json:"status"`
+	StageConfirmed  bool                 `json:"stage_confirmed"`
+	CreatedAt       time.Time            `json:"created_at"`
+	AcceptedAt      *time.Time           `json:"accepted_at"`                // когда команда приняла проект (status accepted)
+	MessagesCount   int                  `json:"messages_count"`             // сообщений в чате отклика
+	Quick           bool                 `json:"quick,omitempty"`            // быстрый отклик из каталога
+	ProfileSnapshot *TeamProfileSnapshot `json:"profile_snapshot,omitempty"` // публичный профиль на момент быстрого отклика
+}
+
+// TeamProfileSnapshot — публичная часть профиля команды, сохранённая в быстром отклике.
+// Контакт намеренно отсутствует: общение начинается через чат отклика.
+type TeamProfileSnapshot struct {
+	ID           int      `json:"id"`
+	Name         string   `json:"name"`
+	Skills       []string `json:"skills"`
+	Interests    []string `json:"interests"`
+	Tech         []string `json:"tech"`
+	Experience   string   `json:"experience,omitempty"`
+	Achievements string   `json:"achievements,omitempty"`
 }
 
 // Авторы сообщений чата отклика.
@@ -188,13 +204,26 @@ type Message struct {
 }
 
 type Team struct {
-	ID        int      `json:"id"`
-	Name      string   `json:"name"`
-	Skills    []string `json:"skills"`
-	Interests []string `json:"interests"`
-	Tech      []string `json:"tech"`
-	Points    int      `json:"points"`
-	Contact   string   `json:"contact"` // нормализованный email/телефон для входа; пусто у seed-команд
+	ID           int      `json:"id"`
+	Name         string   `json:"name"`
+	Skills       []string `json:"skills"`
+	Interests    []string `json:"interests"`
+	Tech         []string `json:"tech"`
+	Experience   string   `json:"experience,omitempty"`
+	Achievements string   `json:"achievements,omitempty"`
+	Points       int      `json:"points"`
+	Contact      string   `json:"contact"` // нормализованный email/телефон для входа; пусто у seed-команд
+}
+
+// PublicProfileSnapshot переносит только публичные поля команды в быстрый отклик.
+func (t Team) PublicProfileSnapshot() TeamProfileSnapshot {
+	return TeamProfileSnapshot{
+		ID: t.ID, Name: t.Name,
+		Skills:     append([]string{}, t.Skills...),
+		Interests:  append([]string{}, t.Interests...),
+		Tech:       append([]string{}, t.Tech...),
+		Experience: t.Experience, Achievements: t.Achievements,
+	}
 }
 
 // ---- контракты между модулями ----

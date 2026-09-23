@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api, json, withAuth, type Proposal, type Team } from '../api'
 import { useSession } from '../session'
 import { Alert, Badge, Button, ConfirmDialog, useToast } from '../ui'
@@ -12,37 +12,41 @@ const STATUS: Record<Proposal['status'], string> = { new: 'На рассмотр
 const date = (iso: string) => new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
 
 /** Отклики одной структуры: команда · идея · план · срок и ссылка · статус и действие. */
-export function ProposalTable({ proposals, canDecide, teams = [], update }: { proposals: Proposal[]; canDecide: boolean; teams?: Team[]; update: () => void }) {
+export function ProposalTable({ proposals, canDecide, teams = [], initialOpenChatId, update }: { proposals: Proposal[]; canDecide: boolean; teams?: Team[]; initialOpenChatId?: number; update: () => void }) {
   const skills = new Map(teams.map(team => [team.id, [...team.skills, ...team.tech].slice(0, 3)]))
   return <div className="proposal-table" role="table" aria-label="Предложения команд">
     <div className="proposal-row proposal-head" role="row">
       <span role="columnheader">Команда</span><span role="columnheader">Идея</span><span role="columnheader">План</span><span role="columnheader">Срок</span><span role="columnheader">Ссылка</span><span role="columnheader">Статус</span><span role="columnheader">Действие</span>
     </div>
-    {proposals.map(proposal => <ProposalCard key={proposal.id} proposal={proposal} canDecide={canDecide} skills={skills.get(proposal.team.id) ?? []} update={update} />)}
+    {proposals.map(proposal => <ProposalCard key={proposal.id} proposal={proposal} canDecide={canDecide} initialOpenChat={initialOpenChatId === proposal.id} skills={skills.get(proposal.team.id) ?? []} update={update} />)}
   </div>
 }
 
-export function ProposalCard({ proposal, canDecide, skills = [], update }: { proposal: Proposal; canDecide: boolean; skills?: string[]; update: () => void }) {
+export function ProposalCard({ proposal, canDecide, skills = [], initialOpenChat = false, update }: { proposal: Proposal; canDecide: boolean; skills?: string[]; initialOpenChat?: boolean; update: () => void }) {
   const toast = useToast(); const { business, team, explain } = useSession()
   const [busy, setBusy] = useState<Action | ''>(''); const [error, setError] = useState(''); const [ask, setAsk] = useState<'reject' | 'decline' | ''>(''); const [chat, setChat] = useState(false)
   const ownTeam = Boolean(team && team.team.id === proposal.team.id)
   const role = ownTeam && !canDecide ? 'team' : 'business'
   const decided = DECIDED.includes(proposal.status)
+  const showChat = canDecide || ownTeam
+  useEffect(() => { if (initialOpenChat && showChat) setChat(true) }, [initialOpenChat, showChat])
   async function decision(action: Action, token = role === 'team' ? team?.token : business?.token) {
     setBusy(action); setError('')
     try {
       await api<Proposal>(`/proposals/${proposal.id}/${action}`, withAuth(token, json('POST')))
-      setAsk(''); toast.success(done[action]); update()
+      setAsk(''); toast.success(done[action]); window.dispatchEvent(new CustomEvent('student-updated')); update()
     } catch (err) { setAsk(''); setError(explain(err, role, fresh => void decision(action, fresh))) } finally { setBusy('') }
   }
-  const showChat = canDecide || ownTeam
-  return <div className="proposal-item" role="rowgroup">
+  const profile = proposal.profile_snapshot
+  const profileSkills = profile ? [...(profile.skills ?? []), ...(profile.tech ?? [])].filter(Boolean).slice(0, 5) : skills
+  const empty = <span className="proposal-empty">Не добавлено</span>
+  return <div className="proposal-item" id={`proposal-${proposal.id}`} role="rowgroup">
     <div className="proposal-row" role="row">
-      <div role="cell" className="proposal-team"><strong>{proposal.team.name}</strong>{skills.length > 0 && <small>{skills.join(' · ')}</small>}<small>{date(proposal.created_at)}</small></div>
-      <div role="cell" className="proposal-text"><span className="proposal-label">Идея</span><p>{proposal.idea}</p></div>
-      <div role="cell" className="proposal-text"><span className="proposal-label">План</span><p>{proposal.plan}</p></div>
-      <div role="cell" className="proposal-when"><span className="proposal-label">Срок</span><span>{proposal.deadline}</span></div>
-      <div role="cell" className="proposal-link"><span className="proposal-label">Ссылка</span><a href={proposal.link} target="_blank" rel="noopener noreferrer">Материалы ↗</a></div>
+      <div role="cell" className="proposal-team"><strong>{proposal.team.name}</strong>{proposal.quick && <span className="proposal-quick-badge">Быстрый отклик</span>}{profileSkills.length > 0 && <small>{profileSkills.join(' · ')}</small>}{profile?.experience && <small>Опыт: {profile.experience}</small>}{profile?.achievements && <small>Достижения: {profile.achievements}</small>}{!profile && skills.length === 0 && <small className="proposal-empty">Профиль без дополнительных данных</small>}<small>{date(proposal.created_at)}</small></div>
+      <div role="cell" className="proposal-text"><span className="proposal-label">Идея</span><p>{proposal.idea?.trim() || empty}</p></div>
+      <div role="cell" className="proposal-text"><span className="proposal-label">План</span><p>{proposal.plan?.trim() || empty}</p></div>
+      <div role="cell" className="proposal-when"><span className="proposal-label">Срок</span><span>{proposal.deadline?.trim() || empty}</span></div>
+      <div role="cell" className="proposal-link"><span className="proposal-label">Ссылка</span>{proposal.link?.trim() ? <a href={proposal.link.trim()} target="_blank" rel="noopener noreferrer">Материалы ↗</a> : empty}</div>
       <div role="cell" className="proposal-status"><span className="proposal-label">Статус</span><Badge kind={proposal.status}>{STATUS[proposal.status]}</Badge>{proposal.stage_confirmed && <small className="confirmed-stage">Этап подтверждён</small>}</div>
       <div role="cell" className="proposal-actions">
         {canDecide && <>

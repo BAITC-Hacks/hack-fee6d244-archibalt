@@ -36,9 +36,9 @@ func (s *Store) getTeamWhere(ctx context.Context, where string, arg any) (model.
 // CreateTeam вставляет команду (name, contact; навыки пустые, 0 баллов) и заполняет t целиком.
 func (s *Store) CreateTeam(ctx context.Context, t *model.Team) error {
 	var id int
-	err := s.db.QueryRowContext(ctx, `INSERT INTO teams (name, contact, skills, interests, tech, points)
-		VALUES ($1, $2, $3, $4, $5, 0) RETURNING id`,
-		t.Name, t.Contact, nonNil(t.Skills), nonNil(t.Interests), nonNil(t.Tech)).Scan(&id)
+	err := s.db.QueryRowContext(ctx, `INSERT INTO teams (name, contact, skills, interests, tech, experience, achievements, points)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 0) RETURNING id`,
+		t.Name, t.Contact, nonNil(t.Skills), nonNil(t.Interests), nonNil(t.Tech), t.Experience, t.Achievements).Scan(&id)
 	if err != nil {
 		return fmt.Errorf("create team: %w", err)
 	}
@@ -48,6 +48,19 @@ func (s *Store) CreateTeam(ctx context.Context, t *model.Team) error {
 	}
 	*t = got
 	return nil
+}
+
+// UpdateTeamProfile меняет только публичный профиль команды. Имя, контакт и баллы принадлежат системе.
+func (s *Store) UpdateTeamProfile(ctx context.Context, id int, skills, interests, tech []string, experience, achievements string) (model.Team, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE teams SET skills = $2, interests = $3, tech = $4, experience = $5, achievements = $6
+		WHERE id = $1`, id, nonNil(skills), nonNil(interests), nonNil(tech), experience, achievements)
+	if err != nil {
+		return model.Team{}, fmt.Errorf("update team profile: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return model.Team{}, ErrNotFound
+	}
+	return s.GetTeam(ctx, id)
 }
 
 // SetTeamContact привязывает контакт к команде, только если он у неё ещё пуст (иначе ErrNotFound).

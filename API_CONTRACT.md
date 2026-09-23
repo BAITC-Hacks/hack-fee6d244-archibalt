@@ -38,7 +38,8 @@ interface Task {
   rank_if_confirmed: number;               // место при текущем score, если подтвердить сейчас (равный балл — после уже опубликованных); у опубликованной = rank
   catalog_size: number;                    // сколько задач опубликовано сейчас (сама неопубликованная не входит)
   previous_score: number | null;           // балл до изменения — только в ответах answers / fields / confirm, иначе null
-  next_level_gain: number;                 // баллов до следующего уровня (40/70/90); 0 при 90+
+	  next_level_gain: number;                 // баллов до следующего уровня (40/70/90); 0 при 90+
+	  match_reasons?: string[];                // только в персональной рекомендации: факты из профиля команды, совпавшие с задачей
 }
 interface Question {
   id: number; text: string; field_key: FieldKey; answer: string;   // answer "" — нет ответа или пропущен
@@ -49,9 +50,11 @@ interface Proposal {
   id: number; task_id: number; team: { id: number; name: string };
   idea: string; plan: string; deadline: string; link: string;
   status: "new" | "selected" | "accepted" | "declined" | "rejected" | "on_hold"; stage_confirmed: boolean; created_at: string;
-  accepted_at: string | null; messages_count: number;
+	accepted_at: string | null; messages_count: number;
+	quick?: boolean; profile_snapshot?: TeamProfileSnapshot;
 }
-interface Team { id: number; name: string; skills: string[]; interests: string[]; tech: string[]; points: number; }
+interface Team { id: number; name: string; skills: string[]; interests: string[]; tech: string[]; experience?: string; achievements?: string; points: number; }
+interface TeamProfileSnapshot { id: number; name: string; skills: string[]; interests: string[]; tech: string[]; experience?: string; achievements?: string; }
 ```
 
 ## Предварительный и официальный балл (ТЗ §4: баллы только за заполненные и подтверждённые поля)
@@ -80,12 +83,14 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 | POST `/api/tasks/{id}/next-question` | `{ answer?: string, more?: boolean }` | `NextQuestion` | пошаговый режим, см. «Динамические вопросы». Права — как у `answers` |
 | PUT `/api/tasks/{id}/fields` | `{ fields: Partial<Record<FieldKey,string>> }` | `Task` (score/breakdown/missing пересчитаны, confirmed=false) | ручное редактирование, можно вызывать много раз. Только заявитель (Bearer business с `owner_contact` задачи): без токена 401, чужой — 403; у задачи без `owner_contact` (seed) — 403 «у задачи нет заявителя» всем. То же для `answers`, `confirm`, `owner` |
 | POST `/api/tasks/{id}/confirm` | — | `Task` (confirmed=true, status `published`, published_at) | ручное подтверждение = публикация. Баллы начисляются только подтверждённым полям, поэтому score до confirm — «предварительный» (фронт так и подписывает) |
-| POST `/api/tasks/{id}/proposals` | `{ team_id, idea, plan, deadline, link }` | `Proposal` | все поля обязательны → иначе 400; лимита нет |
+| POST `/api/tasks/{id}/proposals` | `{ team_id, idea, plan, deadline, link }` или `{ quick: true }` | `Proposal` | обычный отклик: все поля обязательны; быстрый — только Bearer team, поля пустые, сохраняет публичный снимок профиля; повторный быстрый отклик той же команды на ту же задачу возвращает тот же отклик |
+| PUT `/api/proposals/{id}` | `{ idea?, plan?, deadline?, link? }` | `Proposal` | только команда-владелец отклика; поля можно дополнять после быстрого отклика/выбора бизнеса; пустая ссылка разрешена, непустая — только `http(s)://`; статус и этап не сбрасываются |
 | POST `/api/proposals/{id}/select` | — | `Proposal` | заявитель выбрал (права — как у `fields`) |
 | POST `/api/proposals/{id}/reject` | — | `Proposal` | заявитель отклонил |
 | POST `/api/proposals/{id}/confirm-stage` | — | `Proposal` (+ команде начислены баллы) | заявитель подтвердил этап |
 | GET `/api/teams` | — | `Team[]` | для select в форме отклика |
-| GET `/api/teams/{id}/recommended` | — | `Task[]` | **вне критического пути** |
+| GET `/api/teams/{id}/recommended` | — | `Task[]` | только опубликованные задачи score≥40; сортировка по совпадению и готовности; `match_reasons` — конкретные совпавшие навыки/интересы/технологии/опыт/достижения; каталог остаётся открытым |
+| PUT `/api/me/profile` | `{ skills?, interests?, tech?, experience?, achievements? }` | `{ team }` | Bearer team; обновляет только профиль поиска, сохраняет id/name/contact/points; массивы до 30 пунктов, пункт до 1500 символов, текст до 2000 |
 | GET `/api/ai` | — | `{ mode, prompt_questions, prompt_card, prompt_next_question, schema_example, last_error: string\|null, last_call: {...}\|null }` | страница «как работает AI» для ТЗ §5; в `last_call` email и телефоны маскированы |
 | GET `/api/health` | — | `{ ok: true, db: true, ai_mode }` | для README и проверки экспертом |
 

@@ -39,11 +39,13 @@ type Repo interface {
 	GetTeamByName(ctx context.Context, name string) (model.Team, error)
 	CreateTeam(ctx context.Context, t *model.Team) error
 	SetTeamContact(ctx context.Context, id int, contact string) error
+	UpdateTeamProfile(ctx context.Context, id int, skills, interests, tech []string, experience, achievements string) (model.Team, error)
 	ListProposalsByTeam(ctx context.Context, teamID int) ([]model.Proposal, error)
 	ListTasksByOwner(ctx context.Context, contact string) ([]model.Task, error)
 	SetTaskOwner(ctx context.Context, id int, contact string) error
 	ListMessages(ctx context.Context, proposalID int) ([]model.Message, error)
 	AddMessage(ctx context.Context, proposalID int, author, text string) (model.Message, error)
+	UpdateProposal(ctx context.Context, id, teamID int, p model.Proposal) (model.Proposal, error)
 	Stats(ctx context.Context) (store.Stats, error)
 }
 
@@ -92,6 +94,7 @@ func NewHandler(repo Repo, aiClient ai.Client, compute RatingFunc, staticDir, de
 	mux.HandleFunc("POST /api/tasks/{id}/confirm", s.confirm)
 	mux.HandleFunc("POST /api/tasks/{id}/owner", s.setOwner)
 	mux.HandleFunc("POST /api/tasks/{id}/proposals", s.createProposal)
+	mux.HandleFunc("PUT /api/proposals/{id}", s.updateProposal)
 	mux.HandleFunc("POST /api/proposals/{id}/select", s.setProposalStatus(model.ProposalSelected))
 	mux.HandleFunc("POST /api/proposals/{id}/reject", s.setProposalStatus(model.ProposalRejected))
 	mux.HandleFunc("POST /api/proposals/{id}/hold", s.setProposalStatus(model.ProposalOnHold))
@@ -105,6 +108,7 @@ func NewHandler(repo Repo, aiClient ai.Client, compute RatingFunc, staticDir, de
 	mux.HandleFunc("POST /api/auth/verify", s.verify)
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
 	mux.HandleFunc("GET /api/me", s.me)
+	mux.HandleFunc("PUT /api/me/profile", s.updateProfile)
 	mux.HandleFunc("POST /api/auth/business/request-code", s.requestCode)
 	mux.HandleFunc("POST /api/auth/business/verify", s.verifyBusiness)
 	mux.HandleFunc("POST /api/auth/business/logout", s.logout)
@@ -807,12 +811,15 @@ func (s *server) createProposal(w http.ResponseWriter, r *http.Request) {
 		Plan     string `json:"plan"`
 		Deadline string `json:"deadline"`
 		Link     string `json:"link"`
+		Quick    bool   `json:"quick"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
 	if !ok {
-		if RequireTeamLogin || req.TeamID <= 0 {
+		// Быстрый отклик всегда привязан к сессии: team_id из тела не может
+		// подменить автора даже в демо-режиме.
+		if req.Quick || RequireTeamLogin || req.TeamID <= 0 {
 			unauthorized(w)
 			return
 		}
@@ -827,23 +834,37 @@ func (s *server) createProposal(w http.ResponseWriter, r *http.Request) {
 		TaskID: id, Team: model.TeamRef{ID: team.ID, Name: team.Name},
 		Idea: strings.TrimSpace(req.Idea), Plan: strings.TrimSpace(req.Plan),
 		Deadline: strings.TrimSpace(req.Deadline), Link: strings.TrimSpace(req.Link),
+		Quick: req.Quick,
 	}
-	var missing []string
-	for _, f := range []struct {
-		name string
-		ok   bool
-	}{{"idea", p.Idea != ""}, {"plan", p.Plan != ""}, {"deadline", p.Deadline != ""}, {"link", p.Link != ""}} {
-		if !f.ok {
-			missing = append(missing, f.name)
+	if req.Quick {
+		// Контакт не попадает в снимок: после выбора общение идёт через чат.
+		snapshot := team.PublicProfileSnapshot()
+		p.ProfileSnapshot = &snapshot
+		if p.Link != "" {
+			u, err := url.Parse(p.Link)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				writeError(w, http.StatusBadRequest, "link: нужна ссылка вида https://…")
+				return
+			}
 		}
-	}
-	if len(missing) > 0 {
-		writeError(w, http.StatusBadRequest, "обязательные поля не заполнены: "+strings.Join(missing, ", "))
-		return
-	}
-	if u, err := url.Parse(p.Link); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		writeError(w, http.StatusBadRequest, "link: нужна ссылка вида https://…")
-		return
+	} else {
+		var missing []string
+		for _, f := range []struct {
+			name string
+			ok   bool
+		}{{"idea", p.Idea != ""}, {"plan", p.Plan != ""}, {"deadline", p.Deadline != ""}, {"link", p.Link != ""}} {
+			if !f.ok {
+				missing = append(missing, f.name)
+			}
+		}
+		if len(missing) > 0 {
+			writeError(w, http.StatusBadRequest, "обязательные поля не заполнены: "+strings.Join(missing, ", "))
+			return
+		}
+		if u, err := url.Parse(p.Link); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			writeError(w, http.StatusBadRequest, "link: нужна ссылка вида https://…")
+			return
+		}
 	}
 
 	t, err := s.repo.GetTask(r.Context(), id)
@@ -860,6 +881,82 @@ func (s *server) createProposal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, p)
+}
+
+// updateProposal дополняет быстрый отклик командой. Статус, этап и снимок
+// профиля не меняются: после выбора бизнеса команда продолжает тот же отклик.
+func (s *server) updateProposal(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r)
+	if !ok {
+		return
+	}
+	team, ok := s.teamFromRequest(r)
+	if !ok {
+		unauthorized(w)
+		return
+	}
+	p, err := s.repo.GetProposal(r.Context(), id)
+	if err != nil {
+		fail(w, err, "отклик не найден")
+		return
+	}
+	if p.Team.ID != team.ID {
+		writeError(w, http.StatusForbidden, "редактировать можно только свой отклик")
+		return
+	}
+	var req struct {
+		Idea     *string `json:"idea"`
+		Plan     *string `json:"plan"`
+		Deadline *string `json:"deadline"`
+		Link     *string `json:"link"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if req.Idea != nil {
+		p.Idea = strings.TrimSpace(*req.Idea)
+	}
+	if req.Plan != nil {
+		p.Plan = strings.TrimSpace(*req.Plan)
+	}
+	if req.Deadline != nil {
+		p.Deadline = strings.TrimSpace(*req.Deadline)
+	}
+	if req.Link != nil {
+		p.Link = strings.TrimSpace(*req.Link)
+		if p.Link != "" {
+			u, err := url.Parse(p.Link)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+				writeError(w, http.StatusBadRequest, "link: нужна ссылка вида https://…")
+				return
+			}
+		}
+	}
+	if !p.Quick {
+		var missing []string
+		for _, f := range []struct {
+			name string
+			ok   bool
+		}{{"idea", strings.TrimSpace(p.Idea) != ""}, {"plan", strings.TrimSpace(p.Plan) != ""}, {"deadline", strings.TrimSpace(p.Deadline) != ""}, {"link", strings.TrimSpace(p.Link) != ""}} {
+			if !f.ok {
+				missing = append(missing, f.name)
+			}
+		}
+		if len(missing) > 0 {
+			writeError(w, http.StatusBadRequest, "обязательные поля не заполнены: "+strings.Join(missing, ", "))
+			return
+		}
+	}
+	updated, err := s.repo.UpdateProposal(r.Context(), id, team.ID, p)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "отклик не найден")
+			return
+		}
+		fail(w, err, "отклик не найден")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 func (s *server) setProposalStatus(status model.ProposalStatus) http.HandlerFunc {

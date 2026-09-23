@@ -241,14 +241,15 @@ func (s *Store) UpdateTask(ctx context.Context, t *model.Task) error {
 
 // ---- команды ----
 
-const teamSelect = `SELECT id, name, to_jsonb(skills), to_jsonb(interests), to_jsonb(tech), points, COALESCE(contact, '') FROM teams`
+const teamSelect = `SELECT id, name, to_jsonb(skills), to_jsonb(interests), to_jsonb(tech),
+	COALESCE(experience, ''), COALESCE(achievements, ''), points, COALESCE(contact, '') FROM teams`
 
 func scanTeam(sc scanner) (model.Team, error) {
 	var (
 		t                       model.Team
 		skills, interests, tech []byte
 	)
-	if err := sc.Scan(&t.ID, &t.Name, &skills, &interests, &tech, &t.Points, &t.Contact); err != nil {
+	if err := sc.Scan(&t.ID, &t.Name, &skills, &interests, &tech, &t.Experience, &t.Achievements, &t.Points, &t.Contact); err != nil {
 		return t, err
 	}
 	for _, p := range []struct {
@@ -296,7 +297,7 @@ func (s *Store) GetTeam(ctx context.Context, id int) (model.Team, error) {
 // ---- отклики ----
 
 const proposalSelect = `SELECT p.id, p.task_id, p.team_id, tm.name, p.idea, p.plan, p.deadline, p.link,
-	p.status, p.stage_confirmed, p.created_at, p.accepted_at,
+	p.status, p.stage_confirmed, p.created_at, p.accepted_at, p.quick, p.profile_snapshot,
 	(SELECT count(*) FROM messages m WHERE m.proposal_id = p.id)
 	FROM proposals p JOIN teams tm ON tm.id = p.team_id`
 
@@ -305,10 +306,18 @@ func scanProposal(sc scanner) (model.Proposal, error) {
 		p        model.Proposal
 		status   string
 		accepted sql.NullTime
+		quick    bool
+		snapshot []byte
 	)
 	err := sc.Scan(&p.ID, &p.TaskID, &p.Team.ID, &p.Team.Name, &p.Idea, &p.Plan, &p.Deadline, &p.Link,
-		&status, &p.StageConfirmed, &p.CreatedAt, &accepted, &p.MessagesCount)
+		&status, &p.StageConfirmed, &p.CreatedAt, &accepted, &quick, &snapshot, &p.MessagesCount)
 	p.Status = model.ProposalStatus(status)
+	p.Quick = quick
+	if len(snapshot) > 0 && string(snapshot) != "{}" && string(snapshot) != "null" {
+		if err := json.Unmarshal(snapshot, &p.ProfileSnapshot); err != nil {
+			return p, fmt.Errorf("proposal %d profile snapshot: %w", p.ID, err)
+		}
+	}
 	if accepted.Valid {
 		at := accepted.Time
 		p.AcceptedAt = &at
@@ -322,9 +331,31 @@ func (s *Store) CreateProposal(ctx context.Context, p *model.Proposal) error {
 		p.Status = model.ProposalNew
 	}
 	var id int
-	err := s.db.QueryRowContext(ctx, `INSERT INTO proposals (task_id, team_id, idea, plan, deadline, link, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-		p.TaskID, p.Team.ID, p.Idea, p.Plan, p.Deadline, p.Link, string(p.Status)).Scan(&id)
+	var err error
+	if p.Quick {
+		snapshot := p.ProfileSnapshot
+		if snapshot == nil {
+			snapshot = &model.TeamProfileSnapshot{ID: p.Team.ID, Name: p.Team.Name, Skills: []string{}, Interests: []string{}, Tech: []string{}}
+		}
+		payload, marshalErr := json.Marshal(snapshot)
+		if marshalErr != nil {
+			return fmt.Errorf("create quick proposal snapshot: %w", marshalErr)
+		}
+		// Partial unique index + ON CONFLICT make repeated quick clicks atomic.
+		err = s.db.QueryRowContext(ctx, `INSERT INTO proposals
+			(task_id, team_id, idea, plan, deadline, link, status, quick, profile_snapshot)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8)
+			ON CONFLICT (task_id, team_id) WHERE quick DO NOTHING RETURNING id`,
+			p.TaskID, p.Team.ID, p.Idea, p.Plan, p.Deadline, p.Link, string(p.Status), string(payload)).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			// Existing quick proposal is the idempotent response.
+			return s.getQuickProposal(ctx, p.TaskID, p.Team.ID, p)
+		}
+	} else {
+		err = s.db.QueryRowContext(ctx, `INSERT INTO proposals (task_id, team_id, idea, plan, deadline, link, status)
+			VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+			p.TaskID, p.Team.ID, p.Idea, p.Plan, p.Deadline, p.Link, string(p.Status)).Scan(&id)
+	}
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" { // foreign_key_violation: нет задачи или команды
@@ -335,6 +366,18 @@ func (s *Store) CreateProposal(ctx context.Context, p *model.Proposal) error {
 	got, err := s.GetProposal(ctx, id)
 	if err != nil {
 		return err
+	}
+	*p = got
+	return nil
+}
+
+func (s *Store) getQuickProposal(ctx context.Context, taskID, teamID int, p *model.Proposal) error {
+	got, err := scanProposal(s.db.QueryRowContext(ctx, proposalSelect+` WHERE p.task_id = $1 AND p.team_id = $2 AND p.quick`, taskID, teamID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("get quick proposal: %w", err)
 	}
 	*p = got
 	return nil
@@ -356,6 +399,20 @@ func (s *Store) UpdateProposalStatus(ctx context.Context, id int, status model.P
 	res, err := s.db.ExecContext(ctx, `UPDATE proposals SET status = $2,
 		accepted_at = CASE WHEN $2 = 'accepted' THEN COALESCE(accepted_at, now()) END
 		WHERE id = $1`, id, string(status))
+	if err != nil {
+		return model.Proposal{}, fmt.Errorf("update proposal: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return model.Proposal{}, ErrNotFound
+	}
+	return s.GetProposal(ctx, id)
+}
+
+// UpdateProposal edits only the team's public proposal details. Status and stage are intentionally untouched.
+// teamID is checked in SQL as a second ownership guard for this endpoint.
+func (s *Store) UpdateProposal(ctx context.Context, id, teamID int, p model.Proposal) (model.Proposal, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE proposals SET idea = $3, plan = $4, deadline = $5, link = $6
+		WHERE id = $1 AND team_id = $2`, id, teamID, p.Idea, p.Plan, p.Deadline, p.Link)
 	if err != nil {
 		return model.Proposal{}, fmt.Errorf("update proposal: %w", err)
 	}

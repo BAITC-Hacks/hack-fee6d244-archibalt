@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/model"
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/store"
@@ -268,6 +269,97 @@ func (s *server) me(w http.ResponseWriter, r *http.Request) {
 		out = append(out, MyProposal{Proposal: p, Task: mt})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"team": team, "proposals": out})
+}
+
+const (
+	profileMaxItems     = 30
+	profileMaxItemRunes = 1500
+	profileMaxTextRunes = 2000
+)
+
+func profileList(raw []string, field string) ([]string, error) {
+	if len(raw) > profileMaxItems {
+		return nil, fmt.Errorf("%s: максимум %d пунктов", field, profileMaxItems)
+	}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if utf8.RuneCountInString(item) > profileMaxItemRunes {
+			return nil, fmt.Errorf("%s: каждый пункт — максимум %d символов", field, profileMaxItemRunes)
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func profileText(raw, field string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if utf8.RuneCountInString(raw) > profileMaxTextRunes {
+		return "", fmt.Errorf("%s: максимум %d символов", field, profileMaxTextRunes)
+	}
+	return raw, nil
+}
+
+// updateProfile сохраняет сигналы для быстрого поиска: навыки, интересы,
+// технологии, опыт и достижения. Контакт и очки принадлежат системе.
+func (s *server) updateProfile(w http.ResponseWriter, r *http.Request) {
+	team, ok := s.teamFromRequest(r)
+	if !ok {
+		unauthorized(w)
+		return
+	}
+	var req struct {
+		Skills       *[]string `json:"skills"`
+		Interests    *[]string `json:"interests"`
+		Tech         *[]string `json:"tech"`
+		Experience   *string   `json:"experience"`
+		Achievements *string   `json:"achievements"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	skills, interests, tech := team.Skills, team.Interests, team.Tech
+	var err error
+	if req.Skills != nil {
+		if skills, err = profileList(*req.Skills, "skills"); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.Interests != nil {
+		if interests, err = profileList(*req.Interests, "interests"); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.Tech != nil {
+		if tech, err = profileList(*req.Tech, "tech"); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	experience, achievements := team.Experience, team.Achievements
+	if req.Experience != nil {
+		if experience, err = profileText(*req.Experience, "experience"); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	if req.Achievements != nil {
+		if achievements, err = profileText(*req.Achievements, "achievements"); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	updated, err := s.repo.UpdateTeamProfile(r.Context(), team.ID, skills, interests, tech, experience, achievements)
+	if err != nil {
+		fail(w, err, "команда не найдена")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"team": updated})
 }
 
 // verifyBusiness — вход заявителя: тот же код, ничего не создаёт; задачи находятся по owner_contact.

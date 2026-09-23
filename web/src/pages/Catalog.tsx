@@ -9,6 +9,7 @@ import { useLoad } from '../useLoad'
 import { selectTasks } from './catalog-model'
 import './Catalog.css'
 import { useStartChat } from './TaskNew'
+import { StudentHub } from '../components/StudentHub'
 
 const LEVELS: LevelKind[] = ['priority', 'ready', 'working', 'draft']
 const RANGES = { priority: '90–100', ready: '70–89', working: '40–69', draft: '0–39' }
@@ -39,6 +40,7 @@ export function Catalog({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) =
         <div><strong>{loading || error ? '—' : data.stats?.teams ?? '—'}</strong><span>команд на платформе</span></div>
       </div>
     </header>
+    {student && <StudentHub />}
     <div className="catalog-searchbar" role="search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
       <Input type="search" aria-label="Поиск задач" placeholder={student ? 'Что вам интересно? Например, доставка или образование' : 'Найдите похожую задачу: например, доставка или образование'} value={search} onChange={event => apply('q', event.target.value)} />
