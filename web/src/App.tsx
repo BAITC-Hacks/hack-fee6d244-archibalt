@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
+import { AgentChatProvider } from './components/AgentChat'
 import { Layout, ScrollToTop } from './components/Layout'
 import { PageError } from './components/PageState'
 import type { Mode } from './fields'
@@ -17,7 +18,7 @@ import { SessionProvider } from './session'
 export default function App() {
   const [mode, setModeState] = useState<Mode>(() => localStorage.getItem('mode') === 'team' ? 'team' : 'business')
   function setMode(next: Mode) { localStorage.setItem('mode', next); setModeState(next) }
-  return <SessionProvider>
+  return <SessionProvider><AgentChatProvider>
     <ScrollToTop />
     <Layout mode={mode} setMode={setMode}>
       <Routes>
@@ -33,5 +34,5 @@ export default function App() {
         <Route path="*" element={<PageError message="Такой страницы нет. Проверьте адрес или откройте каталог." />} />
       </Routes>
     </Layout>
-  </SessionProvider>
+  </AgentChatProvider></SessionProvider>
 }
