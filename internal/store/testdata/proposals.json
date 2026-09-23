@@ -1,0 +1,4 @@
+[
+  {"id": 3, "task_id": 1, "team_id": 1, "idea": "Дашборд", "plan": "2 спринта", "deadline": "3 недели", "link": "https://example.com/a", "status": "selected"},
+  {"id": 4, "task_id": 5, "team_id": 2, "idea": "Карта", "plan": "MVP", "deadline": "2026-10-15", "link": "https://example.com/b"}
+]

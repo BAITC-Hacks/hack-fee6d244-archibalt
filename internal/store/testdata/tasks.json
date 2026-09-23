@@ -1,0 +1,8 @@
+[
+  {"id": 1, "industry": "Логистика", "draft_text": "Хотим видеть, где застревают заказы",
+   "fields": {"title": "Отслеживание заказов", "context": "Заказы теряются между складом и курьером", "data": "Выгрузка из 1С за 6 месяцев"},
+   "confirmed": true,
+   "questions": [{"text": "Кто пользователи?", "field_key": "users", "answer": "Диспетчеры"}]},
+  {"id": 2, "industry": "Образование", "draft_text": "Нужен бот для студентов", "fields": {"title": "Бот"}, "confirmed": false},
+  {"id": 5, "industry": "Логистика", "draft_text": "Оптимизация маршрутов", "fields": {"title": "Маршруты", "bogus_key": "x"}, "confirmed": true, "status": "editing"}
+]

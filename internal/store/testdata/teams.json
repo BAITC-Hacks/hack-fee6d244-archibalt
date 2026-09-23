@@ -1,0 +1,4 @@
+[
+  {"id": 1, "name": "Байты", "skills": ["backend", "анализ данных"], "interests": ["логистика"], "tech": ["Go", "Postgres"]},
+  {"id": 2, "name": "Пиксели", "skills": ["дизайн"], "interests": ["образование"], "tech": ["React"], "points": 5}
+]
