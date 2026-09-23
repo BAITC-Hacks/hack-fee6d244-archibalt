@@ -4,7 +4,7 @@
 cd "$(dirname "$0")"
 set -a; [ -f .env ] && . ./.env; set +a
 export DATABASE_URL="${DATABASE_URL:-postgres://postgres:hack@localhost:5432/hack?sslmode=disable}"
-export PORT="${PORT:-8080}" STATIC_DIR=/nonexistent
+export PORT="${PORT:-8080}" STATIC_DIR=/nonexistent DEV_PROXY=http://127.0.0.1:5173
 docker compose up -d db >/dev/null 2>&1
 LOG=.agents/dev-go.log; mkdir -p .agents
 sig() { find cmd internal db go.mod go.sum -type f \( -name '*.go' -o -name '*.sql' -o -name 'go.*' \) -newer .agents/.dev-stamp 2>/dev/null | head -1; }
@@ -15,5 +15,5 @@ stop() { [ -n "$GO_PID" ] && kill "$GO_PID" 2>/dev/null; wait "$GO_PID" 2>/dev/n
 trap 'stop; kill $VITE_PID 2>/dev/null; exit 0' INT TERM
 touch -t 200001010000 .agents/.dev-stamp; build && mv .agents/dev-server.new .agents/dev-server && start
 ( cd web && npx vite --host 127.0.0.1 --port 5173 >>../.agents/dev-vite.log 2>&1 ) & VITE_PID=$!  # только localhost, не LAN
-echo "[dev] Vite :5173 (HMR) → открой http://localhost:5173 ; логи .agents/dev-*.log"
+echo "[dev] открой http://localhost:8080 (Go проксирует фронт в Vite :5173 с HMR); логи .agents/dev-*.log"
 while true; do sleep 2; if [ -n "$(sig)" ]; then echo "[dev] изменения в Go — пересборка"; rebuild; fi; done
