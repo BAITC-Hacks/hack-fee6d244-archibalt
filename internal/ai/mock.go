@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -107,6 +108,146 @@ func (mockClient) questions(_ context.Context, draft, _ string) (model.Questions
 		missing = []model.FieldKey{}
 	}
 	return model.QuestionsResult{Questions: qs, MissingFields: missing}, nil
+}
+
+// fieldInputs — тип ответа и подсказки-варианты на каждое поле для пошагового режима (mock и дополнение).
+var fieldInputs = map[model.FieldKey]struct {
+	typ         model.InputType
+	suggestions []string
+}{
+	model.FieldTitle:             {model.InputText, nil},
+	model.FieldContext:           {model.InputText, []string{"Небольшая компания, всё ведём в таблицах", "Отдел внутри крупной компании", "Проект только запускается"}},
+	model.FieldNeed:              {model.InputText, []string{"Заявки теряются", "Много ручной работы", "Руководству не видна общая картина"}},
+	model.FieldUsers:             {model.InputMulti, []string{"Клиенты", "Сотрудники", "Руководство"}},
+	model.FieldData:              {model.InputChoice, []string{"Выгрузка из Excel/CRM", "Примеры документов", "Данных нет, соберём"}},
+	model.FieldConstraints:       {model.InputMulti, []string{"Жёсткий срок", "Без бюджета на сервисы", "Только бесплатные инструменты", "Ограничений нет"}},
+	model.FieldExpectedResult:    {model.InputChoice, []string{"Прототип", "Рабочий сервис", "Аналитический отчёт"}},
+	model.FieldSuccessCriteria:   {model.InputText, []string{"Заявки не теряются", "Обработка заявки быстрее вдвое", "Руководитель видит отчёт без ручной сводки"}},
+	model.FieldContact:           {model.InputText, nil},
+	model.FieldInteractionFormat: {model.InputChoice, []string{"Созвон раз в неделю", "Чат в Telegram", "Встреча раз в две недели"}},
+}
+
+// stockQuestion — готовый вопрос пошагового режима по полю: текст, тип ответа, подсказки.
+func stockQuestion(k model.FieldKey) *model.Question {
+	in := fieldInputs[k]
+	return &model.Question{Text: questionTexts[k], FieldKey: k, InputType: in.typ, Suggestions: slices.Clone(in.suggestions)}
+}
+
+// cleanSuggestions: непустые, без повторов, не больше 4; у yes_no подсказок нет.
+func cleanSuggestions(typ model.InputType, in []string) []string {
+	if typ == model.InputYesNo {
+		return nil
+	}
+	var out []string
+	for _, s := range in {
+		if s = strings.TrimSpace(s); s != "" && !slices.Contains(out, s) && len(out) < 4 {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// criticalFields — без них команда не начнёт: пошаговый режим не завершается, пока они не спрошены.
+var criticalFields = []model.FieldKey{model.FieldData, model.FieldSuccessCriteria, model.FieldContact}
+
+// nextQuestion (mock): поля, не раскрытые ни в черновике, ни в ответах, и ещё не спрошенные;
+// до MinDynamicQuestions — по приоритету, дальше — только критичные, иначе done.
+func (mockClient) nextQuestion(_ context.Context, draft, _ string, asked []model.Question) (model.NextQuestionResult, error) {
+	text := draft
+	askedKeys := map[model.FieldKey]bool{}
+	for _, q := range asked {
+		text += "\n" + q.Answer
+		askedKeys[q.FieldKey] = true
+	}
+	r := model.NextQuestionResult{MissingFields: []model.FieldKey{}}
+	for _, k := range missingFields(text) {
+		if !askedKeys[k] {
+			r.MissingFields = append(r.MissingFields, k)
+		}
+	}
+	candidates := r.MissingFields
+	if len(asked) >= MinDynamicQuestions {
+		candidates = nil
+		for _, k := range criticalFields {
+			if slices.Contains(r.MissingFields, k) {
+				candidates = append(candidates, k)
+			}
+		}
+		if len(candidates) == 0 {
+			r.Done, r.Reason = true, "критичные сведения есть или уже спрошены: данные, критерии успеха, контакт"
+			return r, nil
+		}
+	}
+	if len(candidates) > 0 {
+		r.Question = stockQuestion(candidates[0])
+	}
+	return r, nil // пусто при < Min — finishNext добьёт по padOrder
+}
+
+// finishNext — правила пошагового режима поверх любого backend: валидный ключ, без повторов полей;
+// < MinDynamicQuestions — всегда вопрос (done игнорируется); ≥ MaxDynamicQuestions — всегда done.
+func finishNext(r model.NextQuestionResult, asked []model.Question) model.NextQuestionResult {
+	askedKeys := map[model.FieldKey]bool{}
+	for _, q := range asked {
+		askedKeys[q.FieldKey] = true
+	}
+	missing := []model.FieldKey{}
+	for _, k := range r.MissingFields {
+		if validKey(k) && !askedKeys[k] && !slices.Contains(missing, k) {
+			missing = append(missing, k)
+		}
+	}
+	r.MissingFields = missing
+	n := len(asked)
+	if n >= MaxDynamicQuestions {
+		r.Question, r.Done = nil, true
+		if r.Reason == "" {
+			r.Reason = "задано максимальное число вопросов"
+		}
+		return r
+	}
+	if q := r.Question; q != nil {
+		r.Question = nil
+		if t := strings.TrimSpace(q.Text); t != "" && validKey(q.FieldKey) && !askedKeys[q.FieldKey] {
+			typ := q.InputType
+			if !slices.Contains(model.InputTypes, typ) {
+				typ = model.InputText
+			}
+			sg := cleanSuggestions(typ, q.Suggestions)
+			if (typ == model.InputChoice || typ == model.InputMulti) && len(sg) < 2 {
+				typ = model.InputText // выбирать не из чего — свободный ответ
+			}
+			r.Question = &model.Question{Text: t, FieldKey: q.FieldKey, InputType: typ, Suggestions: sg}
+		}
+	}
+	if r.Done && n >= MinDynamicQuestions {
+		r.Question = nil
+		return r
+	}
+	if r.Question == nil {
+		lists := [][]model.FieldKey{missing}
+		if n < MinDynamicQuestions {
+			lists = append(lists, padOrder)
+		}
+	pick:
+		for _, list := range lists {
+			for _, k := range list {
+				if !askedKeys[k] {
+					r.Question = stockQuestion(k)
+					break pick
+				}
+			}
+		}
+	}
+	if r.Question == nil { // n ≥ Min, модель не дала годного вопроса и спрашивать больше нечего
+		r.Done = true
+		if r.Reason == "" {
+			r.Reason = "недостающие поля уже спрошены"
+		}
+		return r
+	}
+	r.Done, r.Reason = false, ""
+	return r
 }
 
 func (mockClient) card(_ context.Context, draft, industry string, qs []model.Question) (model.CardResult, error) {

@@ -19,6 +19,22 @@ const PromptQuestions = `Ты помощник, который проверяе�
 	`Вопрос — одно короткое предложение простыми словами, без терминов, с примером ответа в скобках, если уместно. ` +
 	`Не предлагай решений и не придумывай фактов. Отвечай JSON по схеме.`
 
+// PromptNextQuestion — системный промпт пошагового режима: один следующий вопрос или done.
+const PromptNextQuestion = `Ты помощник, который проверяет полноту описания бизнес-задачи для студенческих команд. ` +
+	`Карточка задачи состоит из полей: title — Название; context — Контекст; need — Потребность; users — Пользователи; ` +
+	`data — Данные и материалы; constraints — Ограничения; expected_result — Ожидаемый результат; ` +
+	`success_criteria — Критерии успеха; contact — Контакт; interaction_format — Формат взаимодействия. ` +
+	`Вот черновик и уже заданные вопросы с ответами. Определи, каких полей карточки всё ещё не хватает, ` +
+	`чтобы студенческая команда могла начать (missing_fields). ` +
+	`Если задано меньше 3 вопросов или не хватает критичного (данные, критерии успеха, контакт или формат общения) — ` +
+	`верни done=false и ОДИН следующий вопрос строго про одно поле: одно короткое предложение простыми словами, ` +
+	`с примером ответа в скобках. Предложи 2–4 вероятных варианта ответа простыми словами (suggestions), если вопрос это позволяет; ` +
+	`input_type=choice, если ответ — один из вариантов; multi, если можно выбрать несколько (варианты — процессы или сущности из черновика); ` +
+	`yes_no — для подтверждения (suggestions пустой); иначе text. Не переспрашивай то, что уже известно из черновика или ответов, ` +
+	`и не повторяй поля уже заданных вопросов (даже если ответ пропущен). ` +
+	`Иначе верни done=true, question=null и в reason — одной фразой, почему сведений достаточно. ` +
+	`Не предлагай решений и не выдумывай фактов. Отвечай JSON по схеме.`
+
 // PromptCard — системный промпт для сборки карточки (показывается на /api/ai).
 const PromptCard = `Собери карточку задачи ТОЛЬКО из сведений, которые сообщил пользователь в черновике и ответах. ` +
 	`Если сведений для поля нет — верни пустую строку. Не добавляй фактов, не домысливай цифры, имена, сроки. ` +
@@ -53,6 +69,14 @@ func fieldKeyStrings() []string {
 	return out
 }
 
+func inputTypeStrings() []string {
+	out := make([]string, len(model.InputTypes))
+	for i, t := range model.InputTypes {
+		out[i] = string(t)
+	}
+	return out
+}
+
 func questionsSchema() map[string]any {
 	enum := map[string]any{"type": "string", "enum": fieldKeyStrings()}
 	return map[string]any{
@@ -73,6 +97,34 @@ func questionsSchema() map[string]any {
 			"missing_fields": map[string]any{"type": "array", "items": enum},
 		},
 		"required":             []string{"questions", "missing_fields"},
+		"additionalProperties": false,
+	}
+}
+
+func nextQuestionSchema() map[string]any {
+	enum := map[string]any{"type": "string", "enum": fieldKeyStrings()}
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"done":   map[string]any{"type": "boolean"},
+			"reason": map[string]any{"type": "string"},
+			"question": map[string]any{"anyOf": []any{
+				map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"text":        map[string]any{"type": "string"},
+						"field_key":   enum,
+						"input_type":  map[string]any{"type": "string", "enum": inputTypeStrings()},
+						"suggestions": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+					},
+					"required":             []string{"text", "field_key", "input_type", "suggestions"},
+					"additionalProperties": false,
+				},
+				map[string]any{"type": "null"},
+			}},
+			"missing_fields": map[string]any{"type": "array", "items": enum},
+		},
+		"required":             []string{"done", "reason", "question", "missing_fields"},
 		"additionalProperties": false,
 	}
 }
@@ -109,6 +161,24 @@ func cardUserMessage(draft, industry string, qs []model.Question) string {
 			continue
 		}
 		fmt.Fprintf(&b, "Вопрос: %s / Ответ: %s\n", q.Text, q.Answer)
+	}
+	return b.String()
+}
+
+func nextQuestionUserMessage(draft, industry string, asked []model.Question) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Отрасль: %s\nЧерновик:\n%s\n\n", industry, draft)
+	if len(asked) == 0 {
+		b.WriteString("Вопросов ещё не задавали.\n")
+		return b.String()
+	}
+	fmt.Fprintf(&b, "Уже заданные вопросы (%d):\n", len(asked))
+	for _, q := range asked {
+		a := strings.TrimSpace(q.Answer)
+		if a == "" {
+			a = "(пропущен)"
+		}
+		fmt.Fprintf(&b, "- [%s] Вопрос: %s / Ответ: %s\n", q.FieldKey, q.Text, a)
 	}
 	return b.String()
 }

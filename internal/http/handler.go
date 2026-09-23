@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -77,6 +78,7 @@ func NewHandler(repo Repo, aiClient ai.Client, compute RatingFunc, staticDir, de
 	mux.HandleFunc("POST /api/tasks", s.createTask)
 	mux.HandleFunc("GET /api/tasks/{id}", s.getTask)
 	mux.HandleFunc("POST /api/tasks/{id}/answers", s.answers)
+	mux.HandleFunc("POST /api/tasks/{id}/next-question", s.nextQuestion)
 	mux.HandleFunc("PUT /api/tasks/{id}/fields", s.updateFields)
 	mux.HandleFunc("POST /api/tasks/{id}/confirm", s.confirm)
 	mux.HandleFunc("POST /api/tasks/{id}/owner", s.setOwner)
@@ -280,10 +282,12 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DraftText string `json:"draft_text"`
 		Industry  string `json:"industry"`
+		Mode      string `json:"mode"` // "dynamic" — пошаговые вопросы (или ?mode=dynamic)
 	}
 	if !decode(w, r, &req) {
 		return
 	}
+	dynamic := req.Mode == "dynamic" || r.URL.Query().Get("mode") == "dynamic"
 	req.DraftText, req.Industry = strings.TrimSpace(req.DraftText), strings.TrimSpace(req.Industry)
 	if req.DraftText == "" {
 		writeError(w, http.StatusBadRequest, "draft_text: опишите задачу хотя бы одной фразой")
@@ -294,12 +298,22 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	qr, err := s.ai.Questions(r.Context(), req.DraftText, req.Industry)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "AI недоступен: "+err.Error())
-		return
+	var qs []model.Question
+	if dynamic {
+		nr, err := s.ai.NextQuestion(r.Context(), req.DraftText, req.Industry, nil)
+		if err != nil || nr.Question == nil {
+			writeError(w, http.StatusBadGateway, "AI недоступен: не удалось получить первый вопрос")
+			return
+		}
+		qs = normalizeQuestions([]model.Question{*nr.Question})
+	} else {
+		qr, err := s.ai.Questions(r.Context(), req.DraftText, req.Industry)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "AI недоступен: "+err.Error())
+			return
+		}
+		qs = normalizeQuestions(qr.Questions)
 	}
-	qs := normalizeQuestions(qr.Questions)
 	fields := model.Fields{}.Full()
 	fields[model.FieldContext] = req.DraftText // черновик = контекст: даёт предварительный балл «сейчас N/100» до ответов
 	t := model.Task{
@@ -399,10 +413,7 @@ func (s *server) answers(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	if req.Answers == nil {
-		writeError(w, http.StatusBadRequest, "answers: ожидается объект {\"<id вопроса>\": \"ответ\"}")
-		return
-	}
+	// пустое тело ({} или {answers:{}}) — карточка из ответов, уже сохранённых в questions (пошаговый режим)
 	known := map[string]bool{}
 	for i := range t.Questions {
 		key := strconv.Itoa(t.Questions[i].ID)
@@ -429,6 +440,98 @@ func (s *server) answers(w http.ResponseWriter, r *http.Request) {
 	}
 	t.AIMode = s.ai.Mode()
 	s.saveEdited(w, r, &t)
+}
+
+// nextQuestion — пошаговый режим: записать ответ на последний вопрос (если передан; "" = пропуск),
+// затем спросить AI следующий. Вопрос добавляется в task.questions; при done задача не меняется
+// (кроме записанного ответа), карточку собирает POST /answers.
+func (s *server) nextQuestion(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.loadTask(w, r)
+	if !ok {
+		return
+	}
+	if !s.requireOwner(w, r, t, notEditorMsg) {
+		return
+	}
+	var req struct {
+		Answer *string `json:"answer"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "некорректное тело запроса: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(string(raw)) != "" {
+		if err := json.Unmarshal(raw, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "некорректный JSON: "+err.Error())
+			return
+		}
+	}
+	answered := false
+	if n := len(t.Questions); n > 0 && req.Answer != nil && t.Questions[n-1].Answer == "" {
+		t.Questions[n-1].Answer = strings.TrimSpace(*req.Answer)
+		answered = true
+	}
+
+	nr, err := s.ai.NextQuestion(r.Context(), t.DraftText, t.Industry, t.Questions)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "AI недоступен: "+err.Error())
+		return
+	}
+	if nr.Question != nil {
+		q := *nr.Question
+		q.Answer = ""
+		for _, old := range t.Questions {
+			q.ID = max(q.ID, old.ID)
+		}
+		q.ID++
+		t.Questions = append(t.Questions, q)
+		nr.Question = &q
+		nr.Done, nr.Reason = false, ""
+	}
+	if nr.Question != nil || answered {
+		t.AIMode = s.ai.Mode()
+		if err := s.repo.UpdateTask(r.Context(), &t); err != nil {
+			fail(w, err, "задача не найдена")
+			return
+		}
+	}
+	preview := previewFields(t)
+	resp := map[string]any{
+		"done": nr.Done, "asked": len(t.Questions), "missing_fields": nr.MissingFields,
+		"card_preview": preview, "score_preview": s.compute(preview, false).Score,
+	}
+	if nr.Done {
+		resp["reason"] = nr.Reason
+	} else {
+		resp["question"] = nr.Question
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// previewFields — дешёвая живая карточка без вызова AI: контекст = черновик, ответ на вопрос поля
+// кладётся в это поле (несколько ответов на одно поле — через пробел). Настоящую собирает POST /answers.
+func previewFields(t model.Task) model.Fields {
+	f := model.Fields{}.Full()
+	f[model.FieldContext] = t.DraftText
+	seen := map[model.FieldKey]bool{}
+	for _, q := range t.Questions {
+		a := strings.TrimSpace(q.Answer)
+		if a == "" {
+			continue
+		}
+		if _, ok := model.FieldLabels[q.FieldKey]; !ok {
+			continue
+		}
+		if seen[q.FieldKey] {
+			f[q.FieldKey] += " " + a
+		} else {
+			f[q.FieldKey] = a
+		}
+		seen[q.FieldKey] = true
+	}
+	return f
 }
 
 func (s *server) updateFields(w http.ResponseWriter, r *http.Request) {

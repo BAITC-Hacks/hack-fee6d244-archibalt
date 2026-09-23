@@ -16,6 +16,9 @@ type Client interface {
 	Questions(ctx context.Context, draft string, industry string) (model.QuestionsResult, error)
 	// Card собирает карточку; qs — вопросы с заполненным Answer.
 	Card(ctx context.Context, draft string, industry string, qs []model.Question) (model.CardResult, error)
+	// NextQuestion — пошаговый режим: следующий вопрос с учётом уже заданных (asked, с ответами)
+	// или Done. Не меньше MinDynamicQuestions и не больше MaxDynamicQuestions вопросов.
+	NextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error)
 	// Mode — режим, фактически использованный в последнем вызове.
 	Mode() model.AIMode
 	// Info — данные для GET /api/ai.
@@ -27,10 +30,17 @@ type Info struct {
 	Mode            model.AIMode `json:"mode"`
 	PromptQuestions string       `json:"prompt_questions"`
 	PromptCard      string       `json:"prompt_card"`
+	PromptNext      string       `json:"prompt_next_question"`
 	SchemaExample   string       `json:"schema_example"`
 	LastError       *string      `json:"last_error"`
 	LastCall        *LastCall    `json:"last_call"`
 }
+
+// Границы пошагового режима: не меньше Min и не больше Max вопросов.
+const (
+	MinDynamicQuestions = 3
+	MaxDynamicQuestions = 5
+)
 
 const defaultEndpoint = "https://api.openai.com/v1/responses"
 
@@ -52,6 +62,7 @@ func newClient(apiKey, modelName, endpoint string) *fallback {
 type backend interface {
 	questions(ctx context.Context, draft, industry string) (model.QuestionsResult, error)
 	card(ctx context.Context, draft, industry string, qs []model.Question) (model.CardResult, error)
+	nextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error)
 }
 
 // fallback: primary (openai, может быть nil) → один повтор → backup (mock).
@@ -77,6 +88,20 @@ func (f *fallback) Questions(ctx context.Context, draft, industry string) (model
 func (f *fallback) Card(ctx context.Context, draft, industry string, qs []model.Question) (model.CardResult, error) {
 	return run(f, func(b backend) (model.CardResult, error) {
 		return b.card(ctx, draft, industry, qs)
+	})
+}
+
+// NextQuestion: при ≥ MaxDynamicQuestions — done без вызова модели; иначе backend + правила finishNext.
+func (f *fallback) NextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error) {
+	if len(asked) >= MaxDynamicQuestions {
+		return finishNext(model.NextQuestionResult{}, asked), nil
+	}
+	return run(f, func(b backend) (model.NextQuestionResult, error) {
+		r, err := b.nextQuestion(ctx, draft, industry, asked)
+		if err != nil {
+			return r, err
+		}
+		return finishNext(r, asked), nil
 	})
 }
 
@@ -115,7 +140,7 @@ func (f *fallback) Mode() model.AIMode {
 func (f *fallback) Info() Info {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	info := Info{Mode: f.mode, PromptQuestions: PromptQuestions, PromptCard: PromptCard, SchemaExample: SchemaExample, LastCall: lastCallCopy()}
+	info := Info{Mode: f.mode, PromptQuestions: PromptQuestions, PromptCard: PromptCard, PromptNext: PromptNextQuestion, SchemaExample: SchemaExample, LastCall: lastCallCopy()}
 	if f.lastErr != nil {
 		s := f.lastErr.Error()
 		info.LastError = &s

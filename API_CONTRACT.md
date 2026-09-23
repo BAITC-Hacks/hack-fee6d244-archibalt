@@ -28,7 +28,7 @@ interface Task {
   level: Level; level_label: string;       // черновик | рабочая | готовая | приоритетная
   breakdown: { key: string; label: string; weight: number; earned: number; reason: string }[]; // 7 показателей ТЗ §4
   missing:   { key: string; label: string; gain: number; hint: string }[];                    // что добавить, чтобы +gain
-  questions: { id: number; text: string; field_key: FieldKey; answer: string }[];            // ≥3 от AI
+  questions: Question[];                   // батч-режим: ≥3 от AI сразу; пошаговый (mode=dynamic): растёт по одному, 3–5
   ai_mode: "openai" | "mock";
   created_at: string; published_at: string | null;
   proposals?: Proposal[];                  // только в GET /api/tasks/{id}
@@ -39,6 +39,11 @@ interface Task {
   catalog_size: number;                    // сколько задач опубликовано сейчас (сама неопубликованная не входит)
   previous_score: number | null;           // балл до изменения — только в ответах answers / fields / confirm, иначе null
   next_level_gain: number;                 // баллов до следующего уровня (40/70/90); 0 при 90+
+}
+interface Question {
+  id: number; text: string; field_key: FieldKey; answer: string;   // answer "" — нет ответа или пропущен
+  input_type?: "text" | "choice" | "multi" | "yes_no";             // только пошаговый режим
+  suggestions?: string[];                                          // 2–4 варианта-подсказки (нет у yes_no и в батч-режиме); ответ всё равно строка, multi — через «; »
 }
 interface Proposal {
   id: number; task_id: number; team: { id: number; name: string };
@@ -69,9 +74,10 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 | Метод и путь | Тело запроса | Ответ | Заметки |
 |---|---|---|---|
 | GET `/api/tasks?industry=&level=` | — | `{ tasks: Task[], industries: string[], levels: {key,label}[], stats: { tasks, proposals, teams } }` | только published; сортировка score DESC, published_at ASC; фильтры опциональны. `stats` — «пульс площадки»: опубликованных задач, всего откликов, всего команд (фильтры на него не влияют) |
-| POST `/api/tasks` | `{ draft_text: string, industry: string }` | `Task` (status `clarifying`, `questions` заполнены ≥3, `owner_contact` маскирован) | **бизнес-токен обязателен** (Bearer business): без него 401 `{error:"чтобы создать задачу, войдите по email или телефону"}`. `owner_contact` берётся из сессии, поле в теле игнорируется. draft_text пустой → 400. AI вызывается здесь |
+| POST `/api/tasks` | `{ draft_text: string, industry: string, mode?: "dynamic" }` | `Task` (status `clarifying`, `questions` заполнены ≥3; при `mode:"dynamic"` или `?mode=dynamic` — ровно 1 первый вопрос, см. «Динамические вопросы»; `owner_contact` маскирован) | **бизнес-токен обязателен** (Bearer business): без него 401 `{error:"чтобы создать задачу, войдите по email или телефону"}`. `owner_contact` берётся из сессии, поле в теле игнорируется. draft_text пустой → 400. AI вызывается здесь |
 | GET `/api/tasks/{id}` | — | `Task` с `proposals` | любой статус |
-| POST `/api/tasks/{id}/answers` | `{ answers: { [question_id: string]: string } }` | `Task` (status `editing`, `fields` собраны AI из черновика+ответов, score посчитан, confirmed=false) | AI вызывается здесь; поля без данных остаются "" |
+| POST `/api/tasks/{id}/answers` | `{ answers?: { [question_id: string]: string } }` | `Task` (status `editing`, `fields` собраны AI из черновика+ответов, score посчитан, confirmed=false) | AI вызывается здесь; поля без данных остаются "". Переданные ответы перекрывают сохранённые; `{}` или `{answers:{}}` — карточка из ответов, уже сохранённых в `questions` (после пошагового режима) |
+| POST `/api/tasks/{id}/next-question` | `{ answer?: string }` | `NextQuestion` | пошаговый режим, см. «Динамические вопросы». Права — как у `answers` |
 | PUT `/api/tasks/{id}/fields` | `{ fields: Partial<Record<FieldKey,string>> }` | `Task` (score/breakdown/missing пересчитаны, confirmed=false) | ручное редактирование, можно вызывать много раз. Только заявитель (Bearer business с `owner_contact` задачи): без токена 401, чужой — 403; у задачи без `owner_contact` (seed) — 403 «у задачи нет заявителя» всем. То же для `answers`, `confirm`, `owner` |
 | POST `/api/tasks/{id}/confirm` | — | `Task` (confirmed=true, status `published`, published_at) | ручное подтверждение = публикация. Баллы начисляются только подтверждённым полям, поэтому score до confirm — «предварительный» (фронт так и подписывает) |
 | POST `/api/tasks/{id}/proposals` | `{ team_id, idea, plan, deadline, link }` | `Proposal` | все поля обязательны → иначе 400; лимита нет |
@@ -80,8 +86,39 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 | POST `/api/proposals/{id}/confirm-stage` | — | `Proposal` (+ команде начислены баллы) | заявитель подтвердил этап |
 | GET `/api/teams` | — | `Team[]` | для select в форме отклика |
 | GET `/api/teams/{id}/recommended` | — | `Task[]` | **вне критического пути** |
-| GET `/api/ai` | — | `{ mode, prompt_questions, prompt_card, schema_example, last_error: string\|null, last_call: {...}\|null }` | страница «как работает AI» для ТЗ §5; в `last_call` email и телефоны маскированы |
+| GET `/api/ai` | — | `{ mode, prompt_questions, prompt_card, prompt_next_question, schema_example, last_error: string\|null, last_call: {...}\|null }` | страница «как работает AI» для ТЗ §5; в `last_call` email и телефоны маскированы |
 | GET `/api/health` | — | `{ ok: true, db: true, ai_mode }` | для README и проверки экспертом |
+
+## Динамические вопросы (пошаговый режим)
+
+Альтернатива батч-режиму (все вопросы сразу — остаётся как есть, фронт выбирает любой). AI задаёт по одному вопросу и каждый следующий выбирает по черновику и уже данным ответам; останавливается сам, когда сведений достаточно, но **не раньше 3 и не позже 5 вопросов**. До `done` обязательно спрошены критичные поля (данные, критерии успеха, контакт/формат), если их нет в черновике; одно поле дважды не спрашивается (пропущенное — тоже).
+
+1. `POST /api/tasks` `{ draft_text, industry, mode: "dynamic" }` (или `?mode=dynamic`) → `Task`, в `questions` — один вопрос (id 1).
+2. `POST /api/tasks/{id}/next-question` `{ answer: "..." }` — ответ записывается в последний вопрос, если он без ответа (`answer: ""` = «пропустить», сохраняется как ""; без поля `answer` ничего не записывается). Затем AI выбирает следующий:
+
+```ts
+interface NextQuestion {
+  done: boolean;
+  question?: Question;          // при done=false: новый вопрос уже добавлен в task.questions (id = max+1)
+  reason?: string;              // при done=true: почему сведений достаточно
+  asked: number;                // сколько вопросов задано (длина task.questions)
+  missing_fields: FieldKey[];   // чего ещё не хватает по мнению AI (без уже спрошенных полей)
+  card_preview: Record<FieldKey, string>; // живая карточка без вызова AI: context = черновик, ответ кладётся в поле своего вопроса
+  score_preview: number;        // rating.Compute(card_preview, false) — растущий балл в диалоге
+}
+```
+
+3. При `done: true` вопросы не добавляются (повторный вызов снова вернёт done). Карточку собирает `POST /api/tasks/{id}/answers` с телом `{}` — из сохранённых ответов, через AI + Guard, как в батч-режиме.
+
+Права: только заявитель (без токена 401, чужой — 403, у задачи без заявителя — 403). Ошибки: неверный JSON → 400, нет задачи → 404. AI: строгая JSON-схема `{done, reason, question: {text, field_key, input_type, suggestions} | null, missing_fields}`, промпт — `GET /api/ai` → `prompt_next_question`; правила 3..5 и «без повторов» применяются поверх ответа модели; при ошибке — повтор и детерминированный mock. Замер живого прогона (gpt-6-sol): ~6–9 с на шаг.
+
+```bash
+curl -s -X POST localhost:8080/api/tasks -H "Authorization: Bearer $BIZ" -H 'Content-Type: application/json' \
+  -d '{"mode":"dynamic","draft_text":"Языковой центр вырос из Excel, заявки теряются в WhatsApp","industry":"Образование"}'
+curl -s -X POST localhost:8080/api/tasks/$ID/next-question -H "Authorization: Bearer $BIZ" -H 'Content-Type: application/json' \
+  -d '{"answer":"Выгрузка заявок из Excel за 2025 год"}'   # повторять до done:true
+curl -s -X POST localhost:8080/api/tasks/$ID/answers -H "Authorization: Bearer $BIZ" -H 'Content-Type: application/json' -d '{}'
+```
 
 ## Экраны фронта (маршруты SPA, на усмотрение Ильяса по дизайну)
 

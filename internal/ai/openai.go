@@ -165,3 +165,26 @@ func (c *openAIClient) card(ctx context.Context, draft, industry string, qs []mo
 	}
 	return finishCard(model.Fields(res.Fields), draft, industry, qs), nil
 }
+
+func (c *openAIClient) nextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error) {
+	var res struct {
+		Done     bool   `json:"done"`
+		Reason   string `json:"reason"`
+		Question *struct {
+			Text        string          `json:"text"`
+			FieldKey    model.FieldKey  `json:"field_key"`
+			InputType   model.InputType `json:"input_type"`
+			Suggestions []string        `json:"suggestions"`
+		} `json:"question"`
+		MissingFields []model.FieldKey `json:"missing_fields"`
+	}
+	if err := c.call(ctx, "next_question", PromptNextQuestion, nextQuestionUserMessage(draft, industry, asked), nextQuestionSchema(), &res); err != nil {
+		return model.NextQuestionResult{}, err
+	}
+	r := model.NextQuestionResult{Done: res.Done, Reason: strings.TrimSpace(res.Reason), MissingFields: res.MissingFields}
+	if res.Question != nil {
+		q := res.Question
+		r.Question = &model.Question{Text: q.Text, FieldKey: q.FieldKey, InputType: q.InputType, Suggestions: q.Suggestions}
+	}
+	return r, nil // валидация и правила 3..5 — в finishNext
+}

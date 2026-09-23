@@ -36,3 +36,8 @@ func (fakeAI) Mode() model.AIMode { return model.AIModeMock }
 func (fakeAI) Info() ai.Info {
 	return ai.Info{Mode: model.AIModeMock, PromptQuestions: "q", PromptCard: "c", SchemaExample: "{}"}
 }
+
+// NextQuestion — настоящий mock из internal/ai (без ключа): детерминированная эвристика 3–5 вопросов.
+func (fakeAI) NextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error) {
+	return ai.New("", "").NextQuestion(ctx, draft, industry, asked)
+}

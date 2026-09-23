@@ -88,7 +88,23 @@ type Question struct {
 	Text     string   `json:"text"`
 	FieldKey FieldKey `json:"field_key"`
 	Answer   string   `json:"answer"`
+	// Только пошаговый режим (next-question); в батч-режиме пустые и не выводятся.
+	InputType   InputType `json:"input_type,omitempty"`
+	Suggestions []string  `json:"suggestions,omitempty"` // 2–4 варианта-подсказки; ответ всё равно строка (multi — через «; »)
 }
+
+// InputType — как фронту показать поле ответа на вопрос пошагового режима.
+type InputType string
+
+const (
+	InputText   InputType = "text"
+	InputChoice InputType = "choice"
+	InputMulti  InputType = "multi"
+	InputYesNo  InputType = "yes_no"
+)
+
+// InputTypes — допустимые значения input_type.
+var InputTypes = []InputType{InputText, InputChoice, InputMulti, InputYesNo}
 
 type AIMode string
 
@@ -190,4 +206,13 @@ type QuestionsResult struct {
 // CardResult — ответ AI: поля только из слов пользователя, пустые = "".
 type CardResult struct {
 	Fields Fields `json:"fields"`
+}
+
+// NextQuestionResult — ответ AI в пошаговом режиме: следующий вопрос (Answer пустой, ID не задан)
+// или Done=true с причиной. Правило: при < 3 заданных вопросов Done=false, при ≥ 5 — Done=true.
+type NextQuestionResult struct {
+	Question      *Question  `json:"question"`
+	Done          bool       `json:"done"`
+	Reason        string     `json:"reason"`
+	MissingFields []FieldKey `json:"missing_fields"`
 }
