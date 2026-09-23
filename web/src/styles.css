@@ -167,3 +167,9 @@ p.respond-who{display:block}
 .ba-note{margin:12px 0 0;font-size:13px;color:var(--muted)}
 .ba-note a{color:var(--ink);font-weight:600}
 @media(max-width:760px){.before-after{justify-self:start;max-width:none}.catalog-hero .hero-grid{padding:40px 0}}
+.form-field .ui-field-hint{color:var(--accent-darker)}
+
+/* Черновик: подсказка и отметка автосохранения без сдвига вёрстки */
+.draft-hint{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.draft-saved{min-width:120px;text-align:right;color:var(--success);opacity:0;transition:opacity .2s var(--ease)}
+.draft-saved.is-on{opacity:1}
