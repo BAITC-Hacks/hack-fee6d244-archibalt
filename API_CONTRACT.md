@@ -71,3 +71,30 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 3. `demo/script.md` по «Полному сценарию защиты» из `research/acceptance-matrix.md`.
 
 Первая живая версия API: `/api/health`, `/api/teams`, `/api/tasks` — к 13:50.
+
+## Формат seed-файлов (загрузчик `internal/store/seed.go`)
+
+Загрузка при старте, только если таблица `tasks` пуста. Каждый файл — **JSON-массив объектов** (top-level `[...]`). ID задаются явно целыми числами и используются как FK. Порядок загрузки: teams → tasks → proposals. `drafts.json` — не таблица, а сырьё для демо (список слабых описаний, которые вводят руками), загрузчик его не читает.
+
+```ts
+// seed/teams.json
+{ id: number; name: string; skills: string[]; interests: string[]; tech: string[]; points?: number /* default 0 */ }[]
+
+// seed/tasks.json  — карточки разной полноты; score/level/breakdown/missing НЕ указывать, считает бэкенд
+{ id: number; industry: string; draft_text: string;
+  fields: Partial<Record<FieldKey, string>>;   // отсутствующие ключи = ""
+  confirmed: boolean;                          // true → status "published", published_at = now - N минут по порядку id
+  status?: "editing" | "published";            // необязательно; выводится из confirmed
+  questions?: { text: string; field_key: FieldKey; answer: string }[]  // необязательно, id проставит загрузчик
+}[]
+
+// seed/proposals.json
+{ id: number; task_id: number /* FK tasks.id */; team_id: number /* FK teams.id */;
+  idea: string; plan: string; deadline: string /* "2026-10-15" или "3 недели" */; link: string;
+  status?: "new" | "selected" | "rejected" /* default "new" */; stage_confirmed?: boolean /* default false */ }[]
+
+// seed/drafts.json — 5 слабых описаний для ручного ввода в демо
+{ id: number; industry: string; text: string; note?: string /* какие сведения отсутствуют, для сценария демо */ }[]
+```
+
+Минимум по ТЗ §6: 5 записей в каждом файле. `industry` — свободная строка, но одинаковая для одинаковых отраслей (по ней фильтр каталога). Для демо нужен хотя бы один task с `confirmed: true` и `score` в диапазоне 0–39 (то есть 1–2 поля заполнены) и хотя бы один с полной карточкой (90+). Загрузчик валидирует FK и падает с понятной ошибкой при рассинхроне.
