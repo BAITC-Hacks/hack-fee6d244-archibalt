@@ -288,6 +288,16 @@ func finishNext(r model.NextQuestionResult, asked []model.Question, draft string
 			r.Question, r.Done = stockQuestionFor(k, count), false
 		}
 	}
+	// Модель решила закончить, но сама же числит пробелом ключевое поле (данные, результат, критерии, контакт) —
+	// done автоматически только когда ключевые поля закрыты; потолок 5 остаётся.
+	if r.Done && r.Question == nil && n < MaxDynamicQuestions {
+		for _, k := range criticalFields {
+			if slices.Contains(missing, k) && askable(k, closed, count) {
+				r.Question, r.Done = stockQuestionFor(k, count), false
+				break
+			}
+		}
+	}
 	if r.Done && n >= MinDynamicQuestions && !more {
 		r.Question = nil
 		return r

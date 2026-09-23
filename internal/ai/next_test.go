@@ -240,3 +240,17 @@ func TestOpenAINextReasksAfterNoise(t *testing.T) {
 		t.Fatalf("ожидалось уточнение data другой формулировкой: %+v", r.Question)
 	}
 }
+
+// Модель вернула done, но в missing_fields ключевое поле — до 5 вопросов агент его ещё спрашивает.
+func TestOpenAINextDoneWithKeyGap(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(responsesBody(t, map[string]any{"done": true, "reason": "хватит", "missing_fields": []string{"success_criteria"}, "question": nil}))
+	}))
+	defer srv.Close()
+	c := newClient("k", "", srv.URL)
+	three := []model.Question{{FieldKey: model.FieldContext, Answer: "Склад"}, {FieldKey: model.FieldData, Answer: "Выгрузка из CRM"}, {FieldKey: model.FieldContact, Answer: "ivan@firm.kz"}}
+	r, _ := c.NextQuestion(context.Background(), weakDraft, "", three, false)
+	if r.Done || r.Question == nil || r.Question.FieldKey != model.FieldSuccessCriteria {
+		t.Fatalf("ожидался вопрос про критерии успеха: %+v", r)
+	}
+}
