@@ -173,3 +173,13 @@ p.respond-who{display:block}
 .draft-hint{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .draft-saved{min-width:120px;text-align:right;color:var(--success);opacity:0;transition:opacity .2s var(--ease)}
 .draft-saved.is-on{opacity:1}
+
+/* Вопросы: плавная смена шага и сводка ответов */
+.question-step{display:grid;gap:16px;min-height:250px;align-content:start;animation:q-in .22s var(--ease) both}
+@keyframes q-in{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:none}}
+.answer-summary{list-style:none;margin:0;padding:0;display:grid}
+.answer-summary li{display:flex;justify-content:space-between;align-items:start;gap:14px;padding:12px 0;border-top:1px solid var(--line)}
+.answer-summary strong{display:block;font-size:14px;line-height:1.4}
+.answer-summary p{margin:4px 0 0;font-size:14px;color:var(--ink-soft);white-space:pre-wrap}
+.answer-summary p.answer-skipped{color:var(--muted)}
+@media(prefers-reduced-motion:reduce){.question-step{animation:none}}
