@@ -65,7 +65,8 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
   const nextId = useRef(1)
   const panel = useRef<HTMLDivElement>(null); const feed = useRef<HTMLDivElement>(null); const input = useRef<HTMLTextAreaElement>(null)
 
-  const push = (...items: NewMsg[]) => setMsgs(list => [...list, ...items.map(item => ({ ...item, id: nextId.current++ }) as Msg)])
+  // id назначаем сразу, а не внутри updater: иначе messageId для patch (401 → resolved) читается до фактического присвоения.
+  const push = (...items: NewMsg[]) => { const withIds = items.map(item => ({ ...item, id: nextId.current++ }) as Msg); setMsgs(list => [...list, ...withIds]) }
   const patch = (id: number, change: (msg: Msg) => Msg) => setMsgs(list => list.map(msg => (msg.id === id ? change(msg) : msg)))
 
   const lastQuestion = [...msgs].reverse().find((msg): msg is Extract<Msg, { kind: 'question' }> => msg.kind === 'question')
