@@ -221,14 +221,14 @@ func TestBusinessOwner(t *testing.T) {
 		Tasks   []model.Task
 	}
 	c.doAuth(own.Token, "GET", "/api/business/me", nil, 200, &me)
-	if me.Contact != "owner@mail.kz" || len(me.Tasks) != 1 || me.Tasks[0].ID != task.ID || me.Tasks[0].OwnerContact != "owner@mail.kz" ||
+	if me.Contact != "owner@mail.kz" || len(me.Tasks) != 2 || me.Tasks[0].ID != task.ID || // 2: присвоенный анонимный черновик + task, новые сверху me.Tasks[0].OwnerContact != "owner@mail.kz" ||
 		len(me.Tasks[0].Proposals) != 1 || me.Tasks[0].Proposals[0].ID != prop.ID {
 		t.Fatalf("business me: %+v", me)
 	}
 	var raw struct{ Tasks []map[string]any }
 	c.doAuth(own.Token, "POST", "/api/tasks", map[string]string{"draft_text": "Без откликов", "industry": "IT"}, 201, nil)
 	c.doAuth(own.Token, "GET", "/api/business/me", nil, 200, &raw)
-	if len(raw.Tasks) != 2 || raw.Tasks[0]["proposals"] == nil { // у задачи без откликов — [], а не отсутствие поля
+	if len(raw.Tasks) != 3 || raw.Tasks[0]["proposals"] == nil { // у задачи без откликов — [], а не отсутствие поля
 		t.Fatalf("proposals должен быть массивом: %+v", raw.Tasks)
 	}
 	c.doAuth(other.Token, "GET", "/api/business/me", nil, 200, &me)
