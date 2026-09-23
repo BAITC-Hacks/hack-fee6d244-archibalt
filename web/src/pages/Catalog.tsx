@@ -42,7 +42,7 @@ export function Catalog({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) =
 
 function TaskCard({ task, mode, onOpen }: { task: Task; mode: Mode; onOpen: () => void }) {
   const have = task.breakdown.filter(item => item.weight > 0 && item.earned === item.weight).map(item => HAVE[item.key]).filter(Boolean)
-  const proposals = (task as Task & { proposals_count?: number }).proposals_count
+  const proposals = task.proposals_count
   return <article className={`task-card task-card-${task.level}`}>
     <div className="task-card-top">
       <ScoreMedal score={task.score} level={task.level} />
@@ -52,7 +52,7 @@ function TaskCard({ task, mode, onOpen }: { task: Task; mode: Mode; onOpen: () =
     <p className="task-card-industry">{task.industry || 'Без темы'}</p>
     <p className="task-card-have"><span>Есть:</span> {have.length ? have.join(' · ') : '—'}</p>
     <div className="task-card-foot">
-      <span>{proposals !== undefined ? `${proposals} ${plural(proposals, 'отклик', 'отклика', 'откликов')}` : ''}</span>
+      <span>{proposals === undefined ? '' : proposals ? `${proposals} ${plural(proposals, 'отклик', 'отклика', 'откликов')}` : 'пока без откликов'}</span>
       <ButtonLink size="sm" variant={mode === 'team' ? 'primary' : 'secondary'} to={`/task/${task.id}${mode === 'team' ? '#respond' : ''}`} onClick={onOpen}>{mode === 'team' ? 'Откликнуться' : 'Открыть'}</ButtonLink>
     </div>
   </article>

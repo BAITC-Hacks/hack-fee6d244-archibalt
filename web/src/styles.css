@@ -236,8 +236,10 @@ p.respond-who{display:block}
 .facts>div{padding:28px 24px;background:var(--surface)}
 .facts strong{display:block;font-size:48px;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums;margin-bottom:10px}
 .facts p{margin:0;font-size:14px;color:var(--ink-soft)}
-.compare-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
-.compare{width:100%;min-width:760px;border-collapse:collapse;font-size:14px}
+.compare-wrap{overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface)}
+.compare{width:100%;table-layout:fixed;border-collapse:collapse;font-size:14px}
+.compare th,.compare td{overflow-wrap:anywhere}
+@media(max-width:719px){.compare-wrap{overflow-x:auto;overflow-y:hidden}.compare{min-width:680px}}
 .compare th,.compare td{padding:14px 16px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
 .compare tbody tr:last-child th,.compare tbody tr:last-child td{border-bottom:0}
 .compare thead th{font-size:13px;color:var(--muted);font-weight:600}
