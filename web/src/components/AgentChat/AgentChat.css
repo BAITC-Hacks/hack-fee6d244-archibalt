@@ -99,3 +99,9 @@
 .agent-result dd{margin:1px 0 0;font-size:14px;line-height:1.45;color:var(--ink)}
 .agent-result .ui-btn{justify-self:start}
 @media(prefers-reduced-motion:reduce){.agent-result{transition:none}}
+
+/* Визуальный концепт выбранного результата. */
+.agent-visual img{display:block;width:100%;height:auto;border-radius:12px;border:1px solid var(--line);background:var(--surface)}
+.agent-visual-loading{display:flex;align-items:center;gap:10px}
+.agent-visual-loading .agent-typing{min-height:0}
+.agent-visual-mock{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;background:var(--surface);border:1px solid var(--line);font-size:12px;color:var(--muted)}

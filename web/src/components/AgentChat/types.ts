@@ -12,6 +12,9 @@ export type NextResponse =
 /** Вариант первого результата (POST /tasks/{id}/result-options). */
 export interface ResultOption { title: string; result: string; check: string; needs: string; weeks: number }
 
+/** Визуальный концепт выбранного результата: src — адрес для <img>, mock — заглушка без ключа OpenAI. */
+export interface Visual { src: string; mock: boolean }
+
 export interface AgentInput { draftText: string; industry: string }
 /** Что открыть: новый диалог по черновику или продолжение задачи. */
 export type AgentChatStart = AgentInput | { taskId: number }
@@ -48,4 +51,6 @@ export interface Transport {
   finish(session: ChatSession, token: string): Promise<Pick<Task, 'id' | 'score'>>
   /** Присвоить анонимную задачу вошедшему заявителю: POST /tasks/{id}/owner. */
   claim?(session: ChatSession, token: string): Promise<void>
+  /** Необязательно: нарисовать концепт выбранного результата (POST /tasks/{id}/visual). Нет метода — кнопки нет. */
+  visual?(session: ChatSession, token: string): Promise<Visual>
 }

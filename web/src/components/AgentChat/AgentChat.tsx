@@ -18,6 +18,7 @@ type Msg =
   | { id: number; kind: 'error'; text: string; detail?: string; retry: () => void; resolved?: boolean }
   | { id: number; kind: 'options'; options: ResultOption[]; canMore: boolean; chosen?: number | 'own' }
   | { id: number; kind: 'final'; reason: string; canMore: boolean; closed?: boolean }
+  | { id: number; kind: 'visual'; state: 'loading' | 'ready' | 'error'; src?: string; mock?: boolean; error?: string }
 type NewMsg = Msg extends infer M ? (M extends Msg ? Omit<M, 'id'> : never) : never
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
@@ -47,6 +48,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [pending, setPending] = useState(false)
   const [building, setBuilding] = useState(false)
+  const [drawing, setDrawing] = useState(false)
   const [card, setCard] = useState<Fields>(emptyCard)
   const [score, setScore] = useState(0)
   const [flash, setFlash] = useState<Record<string, number>>({})
@@ -116,7 +118,21 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
       const bonus = s.missing.filter(item => (item.key === 'expected_result' && !prev.expected_result?.trim()) || (item.key === 'success_criteria' && !prev.success_criteria?.trim())).reduce((sum, item) => sum + item.gain, 0)
       preview({ ...prev, expected_result: option.result, success_criteria: option.check }, Math.min(100, score + bonus))
       push({ kind: 'final', reason: 'Записал результат и критерии успеха в карточку. Можно собирать.', canMore: msg.canMore })
+      showVisual() // концепт рисуется сам после выбора; «Собрать карточку» его не ждёт
     })
+  }
+
+  /** Концепт выбранного результата: необязательный шаг, не блокирует «Собрать карточку»; сбой — сообщение с «Повторить». */
+  function showVisual() {
+    const s = session.current
+    if (!s || !transport.visual || drawing) return
+    const id = nextId.current++ // id сразу: push назначает его лениво, а patch по готовности должен его найти
+    setMsgs(list => [...list, { id, kind: 'visual', state: 'loading' }])
+    setDrawing(true)
+    transport.visual(s, token.current)
+      .then(v => patch(id, m => ({ ...m, state: 'ready', src: v.src, mock: v.mock }) as Msg))
+      .catch(err => patch(id, m => ({ ...m, state: 'error', error: err instanceof ApiError ? errorText(err) : err instanceof Error ? err.message : '' }) as Msg))
+      .finally(() => setDrawing(false))
   }
 
   function ownResult(msg: Extract<Msg, { kind: 'options' }>) {
@@ -243,7 +259,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
   useEffect(() => { if (active) input.current?.focus({ preventScroll: true }) }, [active?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   // Финал — фокус на «Собрать карточку», чтобы с клавиатуры не искать кнопку.
   const lastMsg = msgs[msgs.length - 1]
-  useEffect(() => { if (lastMsg?.kind === 'final' && !lastMsg.closed) feed.current?.querySelector<HTMLButtonElement>('.agent-final-main')?.focus({ preventScroll: true }) }, [lastMsg])
+  useEffect(() => { if ((lastMsg?.kind === 'final' && !lastMsg.closed) || (lastMsg?.kind === 'visual' && lastMsg.state === 'loading')) feed.current?.querySelector<HTMLButtonElement>('.agent-final-main')?.focus({ preventScroll: true }) }, [lastMsg])
   useLayoutEffect(() => {
     const box = feed.current; if (!box) return
     // Длинное сообщение (варианты результата) показываем с начала, остальное — докручиваем до конца.
@@ -314,6 +330,18 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
         {msg.canMore && <Button variant="secondary" disabled={msg.closed || pending} onClick={() => askMore(msg)}>Спросить ещё</Button>}
       </div>
     </div>
+    if (msg.kind === 'visual') {
+      if (msg.state === 'loading') return <div className="agent-bubble agent-bubble-agent agent-visual-loading"><p>Рисую концепт…</p><span className="agent-typing" aria-hidden="true"><i /><i /><i /></span></div>
+      if (msg.state === 'error') return <div className="agent-bubble agent-bubble-agent agent-bubble-error">
+        <p>Не получилось нарисовать пример. Карточка не изменилась, собрать её можно и без картинки.</p>{msg.error && <p className="agent-note">{msg.error}</p>}
+        <div className="agent-actions"><Button size="sm" disabled={drawing} onClick={showVisual}>Повторить</Button></div>
+      </div>
+      return <div className="agent-bubble agent-bubble-agent agent-bubble-wide agent-visual">
+        <img src={msg.src} alt="Визуальный концепт выбранного результата" />
+        <p className="agent-note">Концепт для обсуждения, не обещание объёма · оценка AI{msg.mock && <span className="agent-visual-mock">mock</span>}</p>
+        <div className="agent-actions"><Button size="sm" variant="ghost" disabled={drawing} onClick={showVisual}>Другой вариант</Button></div>
+      </div>
+    }
     return <div className="agent-bubble agent-bubble-agent"><p>{msg.text}</p></div>
   }
 

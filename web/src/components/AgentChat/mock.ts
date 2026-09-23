@@ -1,5 +1,5 @@
 import type { Fields, Missing } from '../../api'
-import type { AgentQuestion, ChatSession, NextResponse, ResultOption, Step, Transport } from './types'
+import type { AgentQuestion, ChatSession, NextResponse, ResultOption, Step, Transport, Visual } from './types'
 
 /** Демо-вопросы того же формата, что отдаёт POST /tasks/{id}/next-question: по одному на каждый input_type. */
 export const MOCK_QUESTIONS: AgentQuestion[] = [
@@ -80,6 +80,11 @@ export const mockTransport: Transport = {
   },
   async applyResult() {
     await latency()
+  },
+  async visual(): Promise<Visual> {
+    await latency(); await wait(1500)
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640"><rect width="640" height="640" fill="#eef3f7"/><rect x="70" y="90" width="500" height="380" rx="20" fill="#fff" stroke="#c9d6e0" stroke-width="3"/><rect x="70" y="90" width="500" height="50" rx="20" fill="#5b8db8"/><rect x="100" y="170" width="140" height="270" rx="12" fill="#dde7ef"/><rect x="260" y="170" width="280" height="120" rx="12" fill="#cfdde9"/><text x="320" y="540" font-family="sans-serif" font-size="26" text-anchor="middle" fill="#334">Пример концепта (mock)</text></svg>'
+    return { src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`, mock: true }
   },
   async finish(session) {
     await latency()
