@@ -186,10 +186,17 @@ func (mockClient) nextQuestion(_ context.Context, draft, _ string, asked []model
 
 // finishNext — правила пошагового режима поверх любого backend: валидный ключ, без повторов полей;
 // < MinDynamicQuestions — всегда вопрос (done игнорируется); ≥ MaxDynamicQuestions — всегда done.
-func finishNext(r model.NextQuestionResult, asked []model.Question) model.NextQuestionResult {
+func finishNext(r model.NextQuestionResult, asked []model.Question, draft string) model.NextQuestionResult {
 	askedKeys := map[model.FieldKey]bool{}
 	for _, q := range asked {
 		askedKeys[q.FieldKey] = true
+	}
+	// Название не спрашиваем никогда (берётся из черновика); контекст и потребность — только если черновик
+	// совсем короткий: «не переспрашивай известное», цена вопроса высока.
+	askedKeys[model.FieldTitle] = true
+	if len([]rune(strings.TrimSpace(draft))) >= 60 {
+		askedKeys[model.FieldContext] = true
+		askedKeys[model.FieldNeed] = true
 	}
 	missing := []model.FieldKey{}
 	for _, k := range r.MissingFields {

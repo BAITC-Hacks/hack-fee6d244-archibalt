@@ -94,14 +94,14 @@ func (f *fallback) Card(ctx context.Context, draft, industry string, qs []model.
 // NextQuestion: при ≥ MaxDynamicQuestions — done без вызова модели; иначе backend + правила finishNext.
 func (f *fallback) NextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error) {
 	if len(asked) >= MaxDynamicQuestions {
-		return finishNext(model.NextQuestionResult{}, asked), nil
+		return finishNext(model.NextQuestionResult{}, asked, draft), nil
 	}
 	return run(f, func(b backend) (model.NextQuestionResult, error) {
 		r, err := b.nextQuestion(ctx, draft, industry, asked)
 		if err != nil {
 			return r, err
 		}
-		return finishNext(r, asked), nil
+		return finishNext(r, asked, draft), nil
 	})
 }
 
