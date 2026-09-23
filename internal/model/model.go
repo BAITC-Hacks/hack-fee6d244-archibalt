@@ -211,7 +211,8 @@ type CardResult struct {
 }
 
 // NextQuestionResult — ответ AI в пошаговом режиме: следующий вопрос (Answer пустой, ID не задан)
-// или Done=true с причиной. Правило: при < 3 заданных вопросов Done=false, при ≥ 5 — Done=true (по more — при ≥ 8).
+// или Done=true с причиной. Минимум — 3 вопроса; предохранитель — 10 (по more — 12).
+// Диалог завершается раньше верхней границы, если больше нечего уточнять.
 type NextQuestionResult struct {
 	Question      *Question  `json:"question"`
 	Done          bool       `json:"done"`
