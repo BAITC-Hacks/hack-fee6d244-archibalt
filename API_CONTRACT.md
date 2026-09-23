@@ -41,6 +41,13 @@ interface Proposal {
 interface Team { id: number; name: string; skills: string[]; interests: string[]; tech: string[]; points: number; }
 ```
 
+## Предварительный и официальный балл (ТЗ §4: баллы только за заполненные и подтверждённые поля)
+
+Формула одна (`internal/rating.Compute`), но статус балла определяется полем `confirmed`:
+- `confirmed=false` → `score` — **предварительный** (preview). Фронт подписывает его «предварительно» и не показывает задачу в каталоге. Любой `PUT /api/tasks/{id}/fields` сбрасывает `confirmed=false` и `status` в `editing`, даже у опубликованной задачи, до повторного `POST /confirm`.
+- `confirmed=true` → `score` — **официальный**, задача в каталоге на позиции по нему. Каталог (`GET /api/tasks`) отдаёт только подтверждённые.
+Отдельного поля `score_official` нет: официальный балл существует только у подтверждённой задачи. Тесты: `internal/http/handler_test.go` (сброс подтверждения при правке; задача не в каталоге до confirm).
+
 ## Эндпоинты
 
 | Метод и путь | Тело запроса | Ответ | Заметки |
