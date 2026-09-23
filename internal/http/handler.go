@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/ai"
@@ -58,6 +59,9 @@ type server struct {
 	sessions *sessions
 	hub      *hub
 	origins  []string // OriginPatterns для WebSocket чата (WS_ORIGINS)
+
+	optMu   sync.Mutex
+	options map[int][]model.ResultOption // последние показанные варианты результата по задаче (в памяти, не в БД)
 }
 
 // NewHandler собирает роутер: /api/* + статика staticDir с SPA-fallback.
@@ -71,7 +75,7 @@ func NewHandler(repo Repo, aiClient ai.Client, compute RatingFunc, staticDir, de
 		demoOTP = DefaultDemoOTP
 	}
 	s := &server{repo: repo, ai: aiClient, compute: compute, demoOTP: demoOTP, sessions: &sessions{m: map[string]session{}},
-		hub: newHub(), origins: wsOrigins(os.Getenv("WS_ORIGINS"))}
+		hub: newHub(), origins: wsOrigins(os.Getenv("WS_ORIGINS")), options: map[int][]model.ResultOption{}}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/health", s.health)
@@ -80,6 +84,8 @@ func NewHandler(repo Repo, aiClient ai.Client, compute RatingFunc, staticDir, de
 	mux.HandleFunc("GET /api/tasks/{id}", s.getTask)
 	mux.HandleFunc("POST /api/tasks/{id}/answers", s.answers)
 	mux.HandleFunc("POST /api/tasks/{id}/next-question", s.nextQuestion)
+	mux.HandleFunc("POST /api/tasks/{id}/result-options", s.resultOptions)
+	mux.HandleFunc("POST /api/tasks/{id}/apply-result", s.applyResult)
 	mux.HandleFunc("PUT /api/tasks/{id}/fields", s.updateFields)
 	mux.HandleFunc("POST /api/tasks/{id}/confirm", s.confirm)
 	mux.HandleFunc("POST /api/tasks/{id}/owner", s.setOwner)
@@ -535,6 +541,82 @@ func previewFields(t model.Task) model.Fields {
 		seen[q.FieldKey] = true
 	}
 	return f
+}
+
+// genOptions — 2–3 варианта первого результата по черновику и ответам; запоминаются для apply-result,
+// чтобы index указывал на показанный вариант (ответ модели недетерминирован).
+func (s *server) genOptions(ctx context.Context, t model.Task) ([]model.ResultOption, error) {
+	res, err := s.ai.ResultOptions(ctx, t.DraftText, t.Industry, t.Questions)
+	if err != nil {
+		return nil, err
+	}
+	s.optMu.Lock()
+	s.options[t.ID] = res.Options
+	s.optMu.Unlock()
+	return res.Options, nil
+}
+
+// resultOptions — варианты первого проверяемого результата (владелец). Задачу не меняет.
+func (s *server) resultOptions(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.loadTask(w, r)
+	if !ok || !s.requireOwner(w, r, t, notEditorMsg) {
+		return
+	}
+	opts, err := s.genOptions(r.Context(), t)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "AI недоступен: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"options": opts, "ai_mode": s.ai.Mode()})
+}
+
+// applyResult — перенос выбранного (и, возможно, исправленного) варианта в карточку:
+// expected_result = result, success_criteria = check; дальше как PUT /fields (confirmed=false, previous_score).
+func (s *server) applyResult(w http.ResponseWriter, r *http.Request) {
+	t, ok := s.loadTask(w, r)
+	if !ok || !s.requireOwner(w, r, t, notEditorMsg) {
+		return
+	}
+	var req struct {
+		Index *int `json:"index"`
+		Edits struct {
+			Result *string `json:"result"`
+			Check  *string `json:"check"`
+		} `json:"edits"`
+	}
+	if !decode(w, r, &req) {
+		return
+	}
+	if req.Index == nil {
+		writeError(w, http.StatusBadRequest, "index: укажите номер выбранного варианта (с 0)")
+		return
+	}
+	s.optMu.Lock()
+	opts := s.options[t.ID]
+	s.optMu.Unlock()
+	if opts == nil { // после перезапуска сервера: варианты пересчитываются
+		var err error
+		if opts, err = s.genOptions(r.Context(), t); err != nil {
+			writeError(w, http.StatusBadGateway, "AI недоступен: "+err.Error())
+			return
+		}
+	}
+	if *req.Index < 0 || *req.Index >= len(opts) {
+		writeError(w, http.StatusBadRequest, "index: нет варианта с номером "+strconv.Itoa(*req.Index))
+		return
+	}
+	o := opts[*req.Index]
+	result, check := o.Result, o.Check
+	if e := req.Edits.Result; e != nil && strings.TrimSpace(*e) != "" {
+		result = strings.TrimSpace(*e)
+	}
+	if e := req.Edits.Check; e != nil && strings.TrimSpace(*e) != "" {
+		check = strings.TrimSpace(*e)
+	}
+	t.Fields = t.Fields.Full()
+	t.Fields[model.FieldExpectedResult] = result
+	t.Fields[model.FieldSuccessCriteria] = check
+	s.saveEdited(w, r, &t)
 }
 
 func (s *server) updateFields(w http.ResponseWriter, r *http.Request) {

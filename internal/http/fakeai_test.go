@@ -41,3 +41,8 @@ func (fakeAI) Info() ai.Info {
 func (fakeAI) NextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error) {
 	return ai.New("", "").NextQuestion(ctx, draft, industry, asked)
 }
+
+// ResultOptions — настоящий mock из internal/ai: 2 детерминированных варианта по ответам.
+func (fakeAI) ResultOptions(ctx context.Context, draft, industry string, qs []model.Question) (model.ResultOptionsResult, error) {
+	return ai.New("", "").ResultOptions(ctx, draft, industry, qs)
+}
