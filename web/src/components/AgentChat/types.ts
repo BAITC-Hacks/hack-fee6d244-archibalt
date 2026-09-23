@@ -9,6 +9,9 @@ export type NextResponse =
   | { done: false; question: AgentQuestion; asked: number; card_preview: Fields; score_preview: number }
   | { done: true; reason: string; asked: number; card_preview: Fields; score_preview: number }
 
+/** Вариант первого результата (POST /tasks/{id}/result-options). */
+export interface ResultOption { title: string; result: string; check: string; needs: string; weeks: number }
+
 export interface AgentInput { draftText: string; industry: string }
 /** Что открыть: новый диалог по черновику или продолжение задачи. */
 export type AgentChatStart = AgentInput | { taskId: number }
@@ -24,6 +27,8 @@ export interface ChatSession {
   first: Step
   /** Уже заданные вопросы (при продолжении), чтобы восстановить ленту. */
   history: AgentQuestion[]
+  /** Индекс выбранного варианта результата: после сборки карточки применяется ещё раз, чтобы сборка его не затёрла. */
+  chosen?: number
   /** Только legacy/mock: очередь вопросов и ответы, которые копятся на клиенте. */
   local?: { queue: AgentQuestion[]; asked: AgentQuestion[]; answers: Record<string, string>; base: number; card: Fields }
 }
@@ -34,5 +39,9 @@ export interface Transport {
   next(session: ChatSession, answer: string | undefined, token: string): Promise<Step>
   /** Продолжить начатую задачу: GET /tasks/{id}. */
   resume(taskId: number, token: string): Promise<ChatSession>
+  /** Варианты первого результата; [] — шаг пропускается (эндпоинта нет или AI не ответил). */
+  resultOptions(session: ChatSession, token: string): Promise<ResultOption[]>
+  /** Перенести вариант в «Ожидаемый результат» и «Критерии успеха». */
+  applyResult(session: ChatSession, index: number, token: string): Promise<void>
   finish(session: ChatSession, token: string): Promise<Pick<Task, 'id' | 'score'>>
 }

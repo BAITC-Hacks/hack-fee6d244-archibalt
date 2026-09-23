@@ -2,13 +2,13 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, ty
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { ApiError, type Fields } from '../../api'
-import { capitalize, errorText, fieldSpecs, ratingKey, saveDraft } from '../../fields'
+import { capitalize, errorText, fieldSpecs, plural, ratingKey, saveDraft } from '../../fields'
 import { useSession } from '../../session'
 import { AnimatedNumber, Button, ConfirmDialog, LogoMark, Meter, Textarea, useToast } from '../../ui'
 import { cx } from '../../ui/cx'
 import { CloseIcon } from '../../ui/icons'
 import { emptyCard } from './transport'
-import type { AgentChatStart, AgentQuestion, ChatSession, Step, Transport } from './types'
+import type { AgentChatStart, AgentQuestion, ChatSession, ResultOption, Step, Transport } from './types'
 import './AgentChat.css'
 
 type Msg =
@@ -16,6 +16,7 @@ type Msg =
   | { id: number; kind: 'user'; text: string; skipped?: boolean }
   | { id: number; kind: 'question'; q: AgentQuestion; state: 'open' | 'answered' | 'skipped'; picked?: string[] }
   | { id: number; kind: 'error'; text: string; detail?: string; retry: () => void; resolved?: boolean }
+  | { id: number; kind: 'options'; options: ResultOption[]; canMore: boolean; chosen?: number | 'own' }
   | { id: number; kind: 'final'; reason: string; canMore: boolean; closed?: boolean }
 type NewMsg = Msg extends infer M ? (M extends Msg ? Omit<M, 'id'> : never) : never
 
@@ -58,6 +59,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
   if (business?.token) token.current = business.token
   const cardRef = useRef(card)
   const askedRef = useRef(0)
+  const offered = useRef(false)
   const nextId = useRef(1)
   const panel = useRef<HTMLDivElement>(null); const feed = useRef<HTMLDivElement>(null); const input = useRef<HTMLTextAreaElement>(null)
 
@@ -78,14 +80,48 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
     } finally { setPending(false) }
   }
 
-  function apply(step: Step, options: { first?: boolean; reason?: string } = {}) {
+  /** Живая карточка: обновить поля и балл, подсветить изменившиеся поля. */
+  function preview(next: Fields, value: number, flashChanges = true) {
     const prev = cardRef.current
-    const changed = fieldSpecs.map(spec => spec.key).filter(key => (prev[key] || '') !== (step.card[key] || ''))
-    cardRef.current = step.card; setCard(step.card); setScore(step.score)
-    if (!options.first && changed.length) setFlash(current => ({ ...current, ...Object.fromEntries(changed.map(key => [key, (current[key] || 0) + 1])) }))
+    const changed = fieldSpecs.map(spec => spec.key).filter(key => (prev[key] || '') !== (next[key] || ''))
+    cardRef.current = next; setCard(next); setScore(value)
+    if (flashChanges && changed.length) setFlash(current => ({ ...current, ...Object.fromEntries(changed.map(key => [key, (current[key] || 0) + 1])) }))
+  }
+
+  /** Шаг диалога: следующий вопрос или финал; перед первым финалом — варианты первого результата, если сервер их даёт. */
+  async function apply(step: Step, token: string, options: { first?: boolean; reason?: string } = {}) {
+    preview(step.card, step.score, !options.first)
     askedRef.current = step.asked
-    if (step.question && !step.done) { setMulti([]); push({ kind: 'question', q: step.question, state: 'open' }) }
-    else push({ kind: 'final', reason: sentence(options.reason || step.reason || 'Основное уже есть. Можно собирать карточку.'), canMore: !options.reason && step.asked < MAX_QUESTIONS && session.current?.mode !== 'legacy' })
+    if (step.question && !step.done) { setMulti([]); push({ kind: 'question', q: step.question, state: 'open' }); return }
+    const reason = sentence(options.reason || step.reason || 'Основное уже есть. Можно собирать карточку.')
+    const canMore = !options.reason && step.asked < MAX_QUESTIONS && session.current?.mode !== 'legacy'
+    const s = session.current
+    if (s && !offered.current && !options.reason) {
+      const list = await transport.resultOptions(s, token)
+      offered.current = true
+      if (list.length) { push({ kind: 'agent', text: reason }, { kind: 'options', options: list, canMore }); return }
+    }
+    push({ kind: 'final', reason, canMore })
+  }
+
+  function chooseResult(msg: Extract<Msg, { kind: 'options' }>, index: number) {
+    const s = session.current; const option = msg.options[index]
+    if (!s || !option || pending) return
+    patch(msg.id, m => ({ ...m, chosen: index }) as Msg)
+    push({ kind: 'user', text: `Выбираю: ${option.title}` })
+    void run(async t => {
+      await transport.applyResult(s, index, t)
+      s.chosen = index
+      const prev = cardRef.current
+      const bonus = s.missing.filter(item => (item.key === 'expected_result' && !prev.expected_result?.trim()) || (item.key === 'success_criteria' && !prev.success_criteria?.trim())).reduce((sum, item) => sum + item.gain, 0)
+      preview({ ...prev, expected_result: option.result, success_criteria: option.check }, Math.min(100, score + bonus))
+      push({ kind: 'final', reason: 'Записал результат и критерии успеха в карточку. Можно собирать.', canMore: msg.canMore })
+    })
+  }
+
+  function ownResult(msg: Extract<Msg, { kind: 'options' }>) {
+    patch(msg.id, m => ({ ...m, chosen: 'own' }) as Msg)
+    push({ kind: 'user', text: 'Свой вариант' }, { kind: 'final', reason: 'Хорошо. Результат и критерии успеха допишете в редакторе карточки. Можно собирать.', canMore: msg.canMore })
   }
 
   // Старт: новый диалог по черновику или продолжение задачи. Ref защищает от двойного эффекта StrictMode.
@@ -98,14 +134,14 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
       void run(async t => {
         const s = await transport.resume(start.taskId, t); session.current = s
         push(...s.history.flatMap((q): NewMsg[] => [{ kind: 'question', q, state: q.answer ? 'answered' : 'skipped', picked: q.answer ? q.answer.split('; ') : [] }, q.answer ? { kind: 'user', text: q.answer } : { kind: 'user', text: 'Пропустить', skipped: true }]))
-        apply(s.first, { first: true })
+        await apply(s.first, t, { first: true })
       })
     } else {
       push({ kind: 'agent', text: `Понял: «${clip(start.draftText)}». Задам 3–4 вопроса.` })
       void run(async t => {
         const s = await transport.start(start, t); session.current = s
         saveDraft('', ''); if (s.mode !== 'mock') void refreshBusiness(t)
-        apply(s.first, { first: true })
+        await apply(s.first, t, { first: true })
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -118,7 +154,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
     patch(q.id, msg => ({ ...msg, state: clean ? 'answered' : 'skipped', picked }) as Msg)
     push(clean ? { kind: 'user', text: clean } : { kind: 'user', text: 'Пропустить', skipped: true })
     setText(''); setMulti([])
-    void run(async t => apply(await transport.next(s, clean, t)))
+    void run(async t => apply(await transport.next(s, clean, t), t))
   }
 
   function submit(event?: FormEvent) {
@@ -153,7 +189,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
     const before = askedRef.current
     void run(async t => {
       const step = await transport.next(s, undefined, t)
-      apply(step, step.done && step.asked <= before ? { reason: 'Больше вопросов нет: всё важное уже есть. Можно собирать карточку.' } : {})
+      await apply(step, t, step.done && step.asked <= before ? { reason: 'Больше вопросов нет: всё важное уже есть. Можно собирать карточку.' } : {})
     })
   }
 
@@ -193,7 +229,13 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
   // Финал — фокус на «Собрать карточку», чтобы с клавиатуры не искать кнопку.
   const lastMsg = msgs[msgs.length - 1]
   useEffect(() => { if (lastMsg?.kind === 'final' && !lastMsg.closed) feed.current?.querySelector<HTMLButtonElement>('.agent-final-main')?.focus({ preventScroll: true }) }, [lastMsg])
-  useLayoutEffect(() => { feed.current?.scrollTo({ top: feed.current.scrollHeight, behavior: reducedMotion() ? 'auto' : 'smooth' }) }, [msgs.length, pending])
+  useLayoutEffect(() => {
+    const box = feed.current; if (!box) return
+    // Длинное сообщение (варианты результата) показываем с начала, остальное — докручиваем до конца.
+    const last = box.querySelector<HTMLElement>('.agent-msg:last-child')
+    const top = last && last.offsetHeight > box.clientHeight - 40 ? last.offsetTop - 12 : box.scrollHeight
+    box.scrollTo({ top, behavior: reducedMotion() ? 'auto' : 'smooth' })
+  }, [msgs.length, pending])
 
   function chipKeys(event: KeyboardEvent<HTMLElement>) {
     const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key]
@@ -234,6 +276,21 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
     if (msg.kind === 'error') return <div className="agent-bubble agent-bubble-agent agent-bubble-error">
       <p>{msg.text}</p>{msg.detail && <p className="agent-note">{msg.detail}</p>}
       <div className="agent-actions"><Button size="sm" disabled={msg.resolved || pending} onClick={() => { patch(msg.id, m => ({ ...m, resolved: true }) as Msg); msg.retry() }}>Повторить</Button></div>
+    </div>
+    if (msg.kind === 'options') return <div className="agent-bubble agent-bubble-agent agent-bubble-wide">
+      <p>Вот {msg.options.length === 2 ? 'два варианта' : `${msg.options.length} варианта`} первого результата, который команда сможет сделать и который вы сможете проверить.</p>
+      <ul className="agent-results">
+        {msg.options.map((option, index) => <li key={index} className={cx('agent-result', msg.chosen === index && 'is-chosen', msg.chosen !== undefined && msg.chosen !== index && 'is-muted')}>
+          <div className="agent-result-head"><h4>{option.title}</h4>{option.weeks > 0 && <span className="agent-result-weeks">~{option.weeks} {plural(option.weeks, 'неделя', 'недели', 'недель')}</span>}</div>
+          <dl>
+            <div><dt>Результат</dt><dd>{option.result}</dd></div>
+            <div><dt>Как проверим</dt><dd>{option.check}</dd></div>
+            {option.needs && <div><dt>Что нужно от вас</dt><dd>{option.needs}</dd></div>}
+          </dl>
+          <Button size="sm" variant={msg.chosen === index ? 'primary' : 'secondary'} disabled={msg.chosen !== undefined || pending} aria-pressed={msg.chosen === index} onClick={() => chooseResult(msg, index)}>{msg.chosen === index ? 'Выбрано' : 'Выбрать'}</Button>
+        </li>)}
+      </ul>
+      <div className="agent-actions"><Button size="sm" variant="ghost" disabled={msg.chosen !== undefined || pending} onClick={() => ownResult(msg)}>Свой вариант</Button></div>
     </div>
     if (msg.kind === 'final') return <div className="agent-bubble agent-bubble-agent">
       <p>{msg.reason}</p>

@@ -1,7 +1,7 @@
-import { api, json, withToken, type Fields, type Task } from '../../api'
+import { ApiError, api, json, withToken, type Fields, type Task } from '../../api'
 import { fieldSpecs, ratingKey } from '../../fields'
 import { mockTransport } from './mock'
-import type { AgentQuestion, ChatSession, NextResponse, Step, Transport } from './types'
+import type { AgentQuestion, ChatSession, NextResponse, ResultOption, Step, Transport } from './types'
 
 export const emptyCard = (): Fields => Object.fromEntries(fieldSpecs.map(spec => [spec.key, ''])) as Fields
 const toStep = (r: NextResponse): Step => r.done
@@ -43,9 +43,19 @@ const liveTransport: Transport = {
   async resume(taskId, token) {
     return sessionFromTask(await api<Task>(`/tasks/${taskId}`, withToken(token)))
   },
+  async resultOptions(session, token) {
+    try { return (await api<{ options?: ResultOption[] }>(`/tasks/${session.taskId}/result-options`, withToken(token, json('POST', {})))).options ?? [] }
+    catch (err) { if (err instanceof ApiError && err.status === 401) throw err; return [] }
+  },
+  async applyResult(session, index, token) {
+    await api<Task>(`/tasks/${session.taskId}/apply-result`, withToken(token, json('POST', { index })))
+  },
   async finish(session, token) {
     const answers = session.mode === 'legacy' ? session.local!.answers : {}
-    return api<Task>(`/tasks/${session.taskId}/answers`, withToken(token, json('POST', { answers })))
+    const task = await api<Task>(`/tasks/${session.taskId}/answers`, withToken(token, json('POST', { answers })))
+    // Сборка карточки пишет поля заново — выбранный вариант результата кладём поверх.
+    if (session.chosen === undefined) return task
+    try { return await api<Task>(`/tasks/${session.taskId}/apply-result`, withToken(token, json('POST', { index: session.chosen }))) } catch { return task }
   },
 }
 

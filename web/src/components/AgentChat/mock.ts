@@ -1,5 +1,5 @@
 import type { Fields, Missing } from '../../api'
-import type { AgentQuestion, ChatSession, NextResponse, Step, Transport } from './types'
+import type { AgentQuestion, ChatSession, NextResponse, ResultOption, Step, Transport } from './types'
 
 /** Демо-вопросы того же формата, что отдаёт POST /tasks/{id}/next-question: по одному на каждый input_type. */
 export const MOCK_QUESTIONS: AgentQuestion[] = [
@@ -16,6 +16,13 @@ export const MOCK_MISSING: Missing[] = [
   { key: 'expected_result', label: 'Результат', gain: 15, hint: '' },
   { key: 'business_link', label: 'Связь с бизнесом', gain: 10, hint: '' },
   { key: 'success_criteria', label: 'Критерии успеха', gain: 15, hint: '' },
+]
+
+/** Ответ POST /tasks/{id}/result-options — образец формата. */
+export const MOCK_OPTIONS: ResultOption[] = [
+  { title: 'Единый список заявок', result: 'Таблица или простая CRM, куда попадают все заявки из WhatsApp и сайта, с ответственным и статусом.', check: 'За неделю ни одна заявка не потеряна, у каждой есть ответственный.', needs: 'Выгрузка заявок за месяц и доступ к рабочему WhatsApp.', weeks: 3 },
+  { title: 'Панель для руководителя', result: 'Дашборд: заявки, загрузка преподавателей и оплаты по неделям.', check: 'Руководитель за 5 минут отвечает, сколько заявок пришло и сколько оплачено.', needs: 'Excel с оплатами и расписанием за полгода.', weeks: 5 },
+  { title: 'Бот записи на пробный урок', result: 'Telegram-бот, который принимает заявку, предлагает время и пишет администратору.', check: 'Половина новых заявок приходит через бота без ручного ввода.', needs: 'Расписание пробных уроков и 30 минут в неделю на обратную связь.', weeks: 6 },
 ]
 
 /** Первый ответ next-question — образец формата. */
@@ -67,8 +74,15 @@ export const mockTransport: Transport = {
   async resume() {
     throw new Error('В демо-режиме продолжить задачу нельзя.')
   },
+  async resultOptions() {
+    await latency()
+    return MOCK_OPTIONS
+  },
+  async applyResult() {
+    await latency()
+  },
   async finish(session) {
     await latency()
-    return { id: 0, score: step(session).score }
+    return { id: 0, score: Math.min(100, step(session).score + (session.chosen === undefined ? 0 : 15)) }
   },
 }
