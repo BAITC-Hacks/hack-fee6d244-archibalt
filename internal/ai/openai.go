@@ -14,7 +14,7 @@ import (
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/model"
 )
 
-const defaultModel = "gpt-5.4-mini"
+const defaultModel = "gpt-6-sol"
 
 // openAIClient — вызов OpenAI Responses API через net/http, без SDK.
 type openAIClient struct {
@@ -28,7 +28,7 @@ func newOpenAI(apiKey, modelName, endpoint string) *openAIClient {
 	if modelName == "" {
 		modelName = defaultModel
 	}
-	return &openAIClient{apiKey: apiKey, model: modelName, endpoint: endpoint, http: &http.Client{Timeout: 20 * time.Second}}
+	return &openAIClient{apiKey: apiKey, model: modelName, endpoint: endpoint, http: &http.Client{Timeout: 60 * time.Second}}
 }
 
 type message struct {
