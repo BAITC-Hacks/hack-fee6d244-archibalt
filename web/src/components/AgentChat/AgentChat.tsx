@@ -22,8 +22,7 @@ type Msg =
 type NewMsg = Msg extends infer M ? (M extends Msg ? Omit<M, 'id'> : never) : never
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
-const MAX_QUESTIONS = 8
-const clip = (text: string, max = 120) => { const clean = text.trim().replace(/\s+/g, ' '); return clean.length > max ? `${clean.slice(0, max).trimEnd()}…` : clean }
+const MAX_QUESTIONS = 12
 /** Причина от AI бывает со строчной и без точки. */
 const sentence = (text: string) => { const clean = capitalize(text.trim()); return /[.!?…]$/.test(clean) ? clean : `${clean}.` }
 const reducedMotion = () => Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
@@ -124,7 +123,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
       const prev = cardRef.current
       const bonus = s.missing.filter(item => (item.key === 'expected_result' && !prev.expected_result?.trim()) || (item.key === 'success_criteria' && !prev.success_criteria?.trim())).reduce((sum, item) => sum + item.gain, 0)
       preview({ ...prev, expected_result: option.result, success_criteria: option.check }, Math.min(100, score + bonus))
-      push({ kind: 'final', reason: 'Записал результат и критерии успеха в карточку. Можно собирать.', canMore: msg.canMore })
+      push({ kind: 'final', reason: 'Выбранный подход и критерии успеха добавлены в черновик. Можем уточнить детали или перейти к проверке карточки.', canMore: msg.canMore })
       showVisual() // концепт рисуется сам после выбора; «Собрать карточку» его не ждёт
     })
   }
@@ -171,7 +170,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
 
   function begin(draftText: string) {
     if ('taskId' in start) return
-    push({ kind: 'agent', text: `Понял: «${clip(draftText)}». Задам 3–5 вопросов.` })
+    push({ kind: 'agent', text: 'Давайте разберём, что нужно получить и что мешает сейчас.' })
     void run(async t => {
       const s = await transport.start({ ...start, draftText }, t); session.current = s
       saveDraft('', ''); if (s.mode !== 'mock') void refreshBusiness(t)
@@ -223,7 +222,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
     const s = session.current
     if (!s) return
     patch(final.id, msg => ({ ...msg, closed: true }) as Msg)
-    push({ kind: 'user', text: 'Спросить ещё' })
+    push({ kind: 'user', text: 'Уточнить задачу' })
     const before = askedRef.current
     void run(async t => {
       const step = await transport.next(s, undefined, t)
@@ -317,7 +316,8 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
       <div className="agent-actions"><Button size="sm" disabled={msg.resolved || pending} onClick={() => { patch(msg.id, m => ({ ...m, resolved: true }) as Msg); msg.retry() }}>Повторить</Button></div>
     </div>
     if (msg.kind === 'options') return <div className="agent-bubble agent-bubble-agent agent-bubble-wide">
-      <p>Вот {msg.options.length === 2 ? 'два варианта' : `${msg.options.length} варианта`} первого результата, который команда сможет сделать и который вы сможете проверить.</p>
+      <p>По нашему обсуждению предлагаю {msg.options.length === 2 ? 'два подхода' : `${msg.options.length} подхода`}. Сравните результат и то, что потребуется от вас, и выберите наиболее подходящий.</p>
+      <p className="agent-note">Выбранный подход можно уточнить перед публикацией. Если ни один не подходит, выберите «Свой вариант».</p>
       <ul className="agent-results">
         {msg.options.map((option, index) => <li key={index} className={cx('agent-result', msg.chosen === index && 'is-chosen', msg.chosen !== undefined && msg.chosen !== index && 'is-muted')}>
           <div className="agent-result-head"><h4>{option.title}</h4>{option.weeks > 0 && <span className="agent-result-weeks" title="Оценка AI, не обязательство">~{option.weeks} {plural(option.weeks, 'неделя', 'недели', 'недель')} · оценка AI</span>}</div>
@@ -335,7 +335,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
       <p>{msg.reason}</p>
       <div className="agent-actions">
         <Button variant="primary" className="agent-final-main" loading={building && !msg.closed} disabled={msg.closed || (pending && !building)} onClick={() => build(msg)}>{building ? 'Собираю карточку…' : 'Собрать карточку'}</Button>
-        {msg.canMore && <Button variant="secondary" disabled={msg.closed || pending} onClick={() => askMore(msg)}>Спросить ещё</Button>}
+        {msg.canMore && <Button variant="secondary" disabled={msg.closed || pending} onClick={() => askMore(msg)}>Уточнить задачу</Button>}
       </div>
     </div>
     if (msg.kind === 'visual') {
