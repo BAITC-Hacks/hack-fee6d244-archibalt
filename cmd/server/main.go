@@ -72,6 +72,7 @@ func run() error {
 
 	aiClient := ai.New(cfg.openAIKey, cfg.openAIModel) // без ключа — mock-режим
 
+	httpapi.RequireTeamLogin = os.Getenv("REQUIRE_TEAM_LOGIN") != "false"
 	srv := &http.Server{
 		Addr:              ":" + cfg.port,
 		Handler:           httpapi.NewHandler(st, aiClient, rating.Compute, cfg.staticDir, cfg.demoOTP),

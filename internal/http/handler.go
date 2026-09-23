@@ -51,6 +51,10 @@ type server struct {
 }
 
 // NewHandler собирает роутер: /api/* + статика staticDir с SPA-fallback.
+// RequireTeamLogin — требовать токен команды для отклика (REQUIRE_TEAM_LOGIN, по умолчанию true).
+// false — страховка для демо без экрана входа: team_id берётся из тела запроса.
+var RequireTeamLogin = true
+
 // demoOTP — одноразовый код входа команд (пусто → DefaultDemoOTP).
 func NewHandler(repo Repo, aiClient ai.Client, compute RatingFunc, staticDir, demoOTP string) http.Handler {
 	if demoOTP == "" {
@@ -379,11 +383,8 @@ func (s *server) createProposal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	team, ok := s.teamFromRequest(r)
-	if !ok {
-		unauthorized(w)
-		return
-	}
 	var req struct {
+		TeamID   int    `json:"team_id"` // учитывается только при RequireTeamLogin=false (страховка для демо)
 		Idea     string `json:"idea"`
 		Plan     string `json:"plan"`
 		Deadline string `json:"deadline"`
@@ -391,6 +392,18 @@ func (s *server) createProposal(w http.ResponseWriter, r *http.Request) {
 	}
 	if !decode(w, r, &req) {
 		return
+	}
+	if !ok {
+		if RequireTeamLogin || req.TeamID <= 0 {
+			unauthorized(w)
+			return
+		}
+		t, err := s.repo.GetTeam(r.Context(), req.TeamID) // ponytail: REQUIRE_TEAM_LOGIN=false — отклик без входа по team_id из тела
+		if err != nil {
+			fail(w, err, "team_id: команда не найдена")
+			return
+		}
+		team = t
 	}
 	p := model.Proposal{
 		TaskID: id, Team: model.TeamRef{ID: team.ID, Name: team.Name},

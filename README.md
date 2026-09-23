@@ -44,6 +44,7 @@ cd web && npm ci && npm run dev  # фронт на :5173 с proxy /api → :8080
 | `OPENAI_MODEL` | `gpt-6-sol` | модель для Responses API |
 | `SEED_DIR` | `./seed` | папка с демо-данными |
 | `STATIC_DIR` | `./web/dist` | собранный фронт |
+| `REQUIRE_TEAM_LOGIN` | `true` | `false` — отклик без входа по `team_id` из тела (страховка для демо) |
 | `DEMO_OTP` | `000000` | одноразовый код входа команд в демо-режиме (реальная отправка не реализована) |
 
 ## Архитектура
