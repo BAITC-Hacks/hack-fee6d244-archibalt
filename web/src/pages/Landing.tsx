@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import type { AiInfo, CatalogResponse } from '../api'
-import { BeforeAfter, useExample } from '../components/BeforeAfter'
+import { AnimatedBackground } from '../components/AnimatedBackground'
+import { useExample } from '../components/BeforeAfter'
+import { ScrollStory } from '../components/ScrollStory'
 import { Reveal } from '../components/Reveal'
 import { plural, readDraft, saveDraft, type Mode } from '../fields'
 import { ButtonLink, Textarea } from '../ui'
@@ -9,8 +11,6 @@ import { useLoad } from '../useLoad'
 import { DRAFT_PLACEHOLDER } from './TaskNew'
 
 const MIN_DRAFT = 10
-const EXAMPLE_QUESTION = 'Какие данные и материалы вы сможете дать команде?'
-const EXAMPLE_ANSWER = 'Выгрузка заявок из Excel за полгода, около 1 200 строк'
 
 const COMPARE: { row: string; cells: [string, string, string, string] }[] = [
   { row: 'Уточняющие вопросы по пробелам', cells: ['Да, 3–4 по вашему тексту', 'Нет, одинаковые поля для всех', 'Да, но без структуры', 'Нет'] },
@@ -57,14 +57,12 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
   const taskCount = stats?.tasks ?? catalog.tasks.length
   const rankNow = example.task?.rank || catalog.tasks.findIndex(task => task.id === 1) + 1 || undefined
   const rankAfter = 1 + catalog.tasks.filter(task => task.id !== 1 && task.score > example.after).length
-  const breakdown = example.breakdown
-  const lastQuestion = ai?.last_call?.questions?.[0]
-  const question = lastQuestion?.text || EXAMPLE_QUESTION
-  const answer = lastQuestion?.answer || EXAMPLE_ANSWER
   const questionCount = ai?.last_call?.questions?.length
 
   return <div className="landing">
-    <section className="landing-hero"><div className="container landing-hero-grid">
+    <section className="landing-hero">
+      <AnimatedBackground />
+      <div className="container landing-hero-grid">
       <div className="landing-hero-copy">
         <h1>Опишите проблему. <em>Получите решения.</em></h1>
         <p className="lead">Archibalt превращает сырой запрос бизнеса в понятную задачу для студенческих команд. AI задаёт вопросы и не выдумывает факты, оценка готовности 0–100 объясняет, что добавить.</p>
@@ -80,46 +78,23 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
         </div>
       </div>
       <div className="hero-visual">
-        <BeforeAfter example={example} />
-        <span className="metric-chip chip-a"><strong>{example.score} → {example.after}</strong> готовность</span>
-        {rankNow ? <span className="metric-chip chip-b"><strong>#{rankNow} → #{rankAfter}</strong> в каталоге</span> : null}
-        <span className="metric-chip chip-c"><strong>{questionCount ? `${questionCount} ${plural(questionCount, 'вопрос', 'вопроса', 'вопросов')}` : '3–4 вопроса'}</strong> · около 3 минут</span>
-        <span className="metric-chip chip-d"><strong>0</strong> выдуманных фактов</span>
+        <div className="hero-score glass" role="img" aria-label={`Пример: готовность задачи ${example.score} из 100 после ответов становится ${example.after}`}>
+          <HeroRing from={example.score} to={example.after} />
+          <p className="hero-score-title">{example.title}</p>
+          <p className="hero-score-note">пример из каталога</p>
+        </div>
+        <span className="metric-chip glass chip-a"><strong>{example.score} → {example.after}</strong> готовность</span>
+        {rankNow ? <span className="metric-chip glass chip-b"><strong>#{rankNow} → #{rankAfter}</strong> в каталоге</span> : null}
+        <span className="metric-chip glass chip-c"><strong>{questionCount ? `${questionCount} ${plural(questionCount, 'вопрос', 'вопроса', 'вопросов')}` : '3–4 вопроса'}</strong> · около 3 минут</span>
+        <span className="metric-chip glass chip-d"><strong>0</strong> выдуманных фактов</span>
       </div>
     </div></section>
 
-    <Reveal className="container landing-section">
-      <p className="eyebrow">Как устроено</p>
-      <h2>AI спрашивает — формула объясняет</h2>
-      <div className="duo">
-        <div className="duo-col">
-          <h3>Вопросы по пробелам в описании</h3>
-          <p>AI читает ваш текст и спрашивает только о том, без чего команда не начнёт работу. Вопрос можно пропустить: поле останется пустым.</p>
-          <div className="mini-screen">
-            <span className="mini-label">Вопрос 1 из {questionCount || 4}</span>
-            <p className="mini-question">{question}</p>
-            <p className="mini-answer">{answer}</p>
-            <span className="mini-foot">{lastQuestion ? 'Из последнего вызова AI' : 'Пример'}</span>
-          </div>
-        </div>
-        <div className="duo-col">
-          <h3>Балл, который можно проверить</h3>
-          <p>Семь показателей с весами. У каждого видно, сколько набрано и что добавить, чтобы подняться в каталоге.</p>
-          <div className="mini-screen">
-            <span className="mini-label">{example.title} · {example.score} из 100</span>
-            <ul className="mini-breakdown">{breakdown.map(item => <li key={item.key}>
-              <span>{item.label}</span>
-              <span className="mini-bar"><span style={{ width: `${item.weight ? (item.earned / item.weight) * 100 : 0}%` }} /></span>
-              <span className={item.earned < item.weight ? 'mini-gain' : ''}>{item.earned < item.weight ? `+${item.weight - item.earned}` : `${item.earned}/${item.weight}`}</span>
-            </li>)}</ul>
-          </div>
-        </div>
-      </div>
-    </Reveal>
+    <ScrollStory example={example} catalog={catalog.tasks} />
 
     <Reveal className="container landing-section">
       <div className="facts">
-        <div><strong>{breakdown.length || 7}</strong><p>показателей в открытой формуле рейтинга</p></div>
+        <div><strong>{example.breakdown.length || 7}</strong><p>показателей в открытой формуле рейтинга</p></div>
         <div><strong>0–100</strong><p>балл готовности и место в каталоге</p></div>
         <div><strong>≥3</strong><p>уточняющих вопроса по вашему тексту</p></div>
         <div><strong>2</strong><p>подтверждения: вы выбираете команду, команда принимает проект</p></div>
@@ -135,16 +110,6 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
       </table></div>
     </Reveal>
 
-    <Reveal className="container landing-section">
-      <p className="eyebrow">Как это работает</p>
-      <h2>Три шага, около трёх минут</h2>
-      <ol className="timeline">
-        <li><span className="timeline-time">30 секунд</span><h3>Опишите задачу</h3><p>Своими словами, как рассказали бы коллеге.</p></li>
-        <li><span className="timeline-time">2 минуты</span><h3>Ответьте на вопросы</h3><p>3–4 вопроса о данных, результате и сроках. Каждый ответ поднимает балл.</p></li>
-        <li><span className="timeline-time">30 секунд</span><h3>Проверьте и опубликуйте</h3><p>Поправьте карточку, подтвердите — задача в каталоге, команды откликаются.</p></li>
-      </ol>
-    </Reveal>
-
     <Reveal className="container landing-section landing-faq">
       <p className="eyebrow">Вопросы</p>
       <h2>Коротко о главном</h2>
@@ -153,6 +118,7 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
 
     <Reveal className="container landing-section">
       <div className="final-cta">
+        <AnimatedBackground intensity="soft" />
         <div><h2>Первая задача — за три минуты</h2><p>Опишите проблему, ответьте на вопросы и посмотрите, какой балл получит карточка.</p></div>
         <div className="final-cta-actions">
           <ButtonLink variant="primary" size="lg" to="/task/new" onClick={() => setMode('business')}>Описать задачу</ButtonLink>
@@ -162,4 +128,29 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
       <p className="final-note">Пример «до/после» — демо-задача <Link to="/task/1">«{example.title}»</Link>. Балл «после» показан для случая, когда недостающие поля заполнены.</p>
     </Reveal>
   </div>
+}
+
+/** Кольцо готовности в hero: один раз доезжает от «было» до «стало» после загрузки. */
+function HeroRing({ from, to }: { from: number; to: number }) {
+  const [value, setValue] = useState(from)
+  const started = useRef(false)
+  useEffect(() => {
+    if (started.current) return
+    started.current = true
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setValue(to); return }
+    let frame = 0; let begin = 0
+    const tick = (now: number) => {
+      if (!begin) begin = now
+      const t = Math.min(1, (now - begin) / 1600)
+      setValue(Math.round(from + (to - from) * (1 - Math.pow(1 - t, 3))))
+      if (t < 1) frame = requestAnimationFrame(tick)
+    }
+    const delay = window.setTimeout(() => { frame = requestAnimationFrame(tick) }, 700)
+    return () => { window.clearTimeout(delay); cancelAnimationFrame(frame); started.current = false }
+  }, [from, to])
+  const r = 70; const length = 2 * Math.PI * r
+  return <span className={`hero-ring${value >= 90 ? ' is-top' : ''}`}>
+    <svg viewBox="0 0 160 160" aria-hidden="true"><circle cx="80" cy="80" r={r} className="hero-ring-track" /><circle cx="80" cy="80" r={r} className="hero-ring-arc" strokeDasharray={`${(value / 100) * length} ${length}`} /></svg>
+    <span className="hero-ring-value"><strong>{value}</strong><small>из 100</small></span>
+  </span>
 }
