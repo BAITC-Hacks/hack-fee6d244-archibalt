@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -18,17 +19,22 @@ const defaultModel = "gpt-6-sol"
 
 // openAIClient — вызов OpenAI Responses API через net/http, без SDK.
 type openAIClient struct {
-	apiKey   string
-	model    string
-	endpoint string
-	http     *http.Client
+	apiKey    string
+	model     string
+	fastModel string
+	endpoint  string
+	http      *http.Client
 }
 
 func newOpenAI(apiKey, modelName, endpoint string) *openAIClient {
 	if modelName == "" {
 		modelName = defaultModel
 	}
-	return &openAIClient{apiKey: apiKey, model: modelName, endpoint: endpoint, http: &http.Client{Timeout: 10 * time.Second}}
+	fast := os.Getenv("OPENAI_MODEL_FAST") // для вопросов: быстрая модель (2–3 с), карточка — основная
+	if fast == "" {
+		fast = modelName
+	}
+	return &openAIClient{apiKey: apiKey, model: modelName, fastModel: fast, endpoint: endpoint, http: &http.Client{Timeout: 10 * time.Second}}
 }
 
 type message struct {
@@ -68,8 +74,12 @@ func truncate(b []byte) string {
 
 // call отправляет запрос и декодирует JSON из output_text в out.
 func (c *openAIClient) call(ctx context.Context, name, system, user string, schema map[string]any, out any) error {
+	return c.callWith(ctx, c.model, name, system, user, schema, out)
+}
+
+func (c *openAIClient) callWith(ctx context.Context, mdl, name, system, user string, schema map[string]any, out any) error {
 	var req responsesRequest
-	req.Model = c.model
+	req.Model = mdl
 	req.Input = []message{{Role: "system", Content: system}, {Role: "user", Content: user}}
 	req.Text.Format.Type = "json_schema"
 	req.Text.Format.Name = name
@@ -123,7 +133,7 @@ func (c *openAIClient) questions(ctx context.Context, draft, industry string) (m
 		} `json:"questions"`
 		MissingFields []model.FieldKey `json:"missing_fields"`
 	}
-	if err := c.call(ctx, "clarifying_questions", PromptQuestions, questionsUserMessage(draft, industry), questionsSchema(), &res); err != nil {
+	if err := c.callWith(ctx, c.fastModel, "clarifying_questions", PromptQuestions, questionsUserMessage(draft, industry), questionsSchema(), &res); err != nil {
 		return model.QuestionsResult{}, err
 	}
 	// по одному вопросу на поле, только валидные ключи, не больше 5
@@ -178,7 +188,7 @@ func (c *openAIClient) nextQuestion(ctx context.Context, draft, industry string,
 		} `json:"question"`
 		MissingFields []model.FieldKey `json:"missing_fields"`
 	}
-	if err := c.call(ctx, "next_question", PromptNextQuestion, nextQuestionUserMessage(draft, industry, asked), nextQuestionSchema(), &res); err != nil {
+	if err := c.callWith(ctx, c.fastModel, "next_question", PromptNextQuestion, nextQuestionUserMessage(draft, industry, asked), nextQuestionSchema(), &res); err != nil {
 		return model.NextQuestionResult{}, err
 	}
 	r := model.NextQuestionResult{Done: res.Done, Reason: strings.TrimSpace(res.Reason), MissingFields: res.MissingFields}

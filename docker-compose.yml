@@ -28,6 +28,7 @@ services:
       DATABASE_URL: postgres://postgres:hack@db:5432/hack?sslmode=disable
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-sol}
+      OPENAI_MODEL_FAST: ${OPENAI_MODEL_FAST:-gpt-5.4-mini}
 
 volumes:
   pgdata:
