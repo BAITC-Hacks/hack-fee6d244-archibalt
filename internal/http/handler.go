@@ -615,7 +615,10 @@ func (s *server) applyResult(w http.ResponseWriter, r *http.Request) {
 	}
 	t.Fields = t.Fields.Full()
 	t.Fields[model.FieldExpectedResult] = result
-	t.Fields[model.FieldSuccessCriteria] = check
+	// Критерий, который заявитель уже написал сам, шаблон варианта не затирает — только явная правка edits.check.
+	if cur := strings.TrimSpace(t.Fields[model.FieldSuccessCriteria]); cur == "" || req.Edits.Check != nil {
+		t.Fields[model.FieldSuccessCriteria] = check
+	}
 	s.saveEdited(w, r, &t)
 }
 

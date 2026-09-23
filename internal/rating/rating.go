@@ -290,6 +290,9 @@ func evalIndicator(w Weight, f model.Fields) (earned int, reason, hint string) {
 		}
 	}
 	hint = upperFirst(strings.Join(hints, "; "))
+	if w.Key == "context_need" && nFull == 2 && normalize(f[model.FieldContext]) == normalize(f[model.FieldNeed]) {
+		return w.Weight / 2, "Заполнено частично: «Контекст» и «Потребность» повторяют друг друга", "Опишите в «Потребности», что именно должно измениться, а в «Контексте» — как устроено сейчас"
+	}
 	switch {
 	case nFull == len(keys):
 		return w.Weight, "Заполнено полностью: " + strings.Join(fullReasons, "; "), ""

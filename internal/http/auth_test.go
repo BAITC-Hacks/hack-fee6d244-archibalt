@@ -63,7 +63,7 @@ func TestAuth(t *testing.T) {
 	}
 	var v1, v2 verifyResp
 	c.do("POST", "/api/auth/verify", map[string]string{"contact": "Team@Example.com", "code": "000000"}, 200, &v1)
-	if v1.Token == "" || !v1.Created || v1.Team.ID == 0 || v1.Team.Contact != "team@example.com" || v1.Team.Name != "Команда team@example.com" {
+	if v1.Token == "" || !v1.Created || v1.Team.ID == 0 || v1.Team.Contact != "team@example.com" || !strings.HasPrefix(v1.Team.Name, "Команда ") || strings.Contains(v1.Team.Name, "example") {
 		t.Fatalf("verify (создание): %+v", v1)
 	}
 	c.do("POST", "/api/auth/verify", map[string]string{"contact": " TEAM@example.com ", "code": "000000", "team_name": "Другое имя"}, 200, &v2)

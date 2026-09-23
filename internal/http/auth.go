@@ -3,8 +3,10 @@ package httpapi
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -202,7 +204,7 @@ func (s *server) teamForContact(r *http.Request, contact, teamName string) (mode
 	// Незнакомый контакт всегда получает свою команду; team_name — только имя новой.
 	name := teamName
 	if name == "" {
-		name = "Команда " + contact
+		name = "Команда " + tokenSuffix(contact) // без телефона/email в публичном имени
 	}
 	nt := model.Team{Name: name, Contact: contact}
 	if err := s.repo.CreateTeam(ctx, &nt); err != nil {
@@ -308,6 +310,7 @@ func (s *server) businessMe(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]ownerTask, len(tasks))
 	for i, t := range tasks {
+		s.enrich(r.Context(), &t) // ponytail: ListTasks на каждую задачу; задач у заявителя единицы
 		out[i] = ownerTask{Task: t, Proposals: t.Proposals}
 		if out[i].Proposals == nil {
 			out[i].Proposals = []model.Proposal{}
@@ -320,4 +323,10 @@ func (s *server) businessMe(w http.ResponseWriter, r *http.Request) {
 type ownerTask struct {
 	model.Task
 	Proposals []model.Proposal `json:"proposals"`
+}
+
+// tokenSuffix — короткий стабильный код из контакта для имени команды по умолчанию, чтобы не публиковать телефон.
+func tokenSuffix(contact string) string {
+	sum := sha256.Sum256([]byte(contact))
+	return fmt.Sprintf("%04d", (int(sum[0])<<8|int(sum[1]))%10000)
 }
