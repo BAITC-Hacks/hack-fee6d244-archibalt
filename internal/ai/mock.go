@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/model"
+	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/rating"
 )
 
 // mockClient — детерминированная заглушка без сети.
@@ -147,75 +148,123 @@ func cleanSuggestions(typ model.InputType, in []string) []string {
 	return out
 }
 
-// criticalFields — без них команда не начнёт: пошаговый режим не завершается, пока они не спрошены.
-var criticalFields = []model.FieldKey{model.FieldData, model.FieldSuccessCriteria, model.FieldContact}
+// criticalFields — без них команда не начнёт: пошаговый режим не завершается сам, пока они не закрыты
+// или не переспрошены maxAsksPerField раз.
+var criticalFields = []model.FieldKey{model.FieldData, model.FieldExpectedResult, model.FieldSuccessCriteria, model.FieldContact}
 
-// nextQuestion (mock): поля, не раскрытые ни в черновике, ни в ответах, и ещё не спрошенные;
-// до MinDynamicQuestions — по приоритету, дальше — только критичные, иначе done.
-func (mockClient) nextQuestion(_ context.Context, draft, _ string, asked []model.Question) (model.NextQuestionResult, error) {
-	text := draft
-	askedKeys := map[model.FieldKey]bool{}
-	for _, q := range asked {
-		text += "\n" + q.Answer
-		askedKeys[q.FieldKey] = true
+// retryTexts — вторая формулировка вопроса, если на первую ответили без сведений («здравствуйте», «не знаю», пропуск).
+var retryTexts = map[model.FieldKey]string{
+	model.FieldTitle:             "Давайте иначе: как бы вы назвали эту задачу в одном сообщении коллеге?",
+	model.FieldContext:           "Давайте иначе: вспомните последний случай, когда это мешало работе, — что тогда произошло?",
+	model.FieldNeed:              "Давайте иначе: что вас больше всего раздражает в текущем процессе (например, потерянные заявки или ручная сводка)?",
+	model.FieldUsers:             "Давайте иначе: кто первым заметит, что стало лучше, — клиенты, сотрудники или руководство?",
+	model.FieldData:              "Давайте иначе: где сейчас хранится эта информация — Excel, CRM, бумага, мессенджер? Можно выбрать вариант.",
+	model.FieldConstraints:       "Давайте иначе: есть ли срок или сумма, которые нельзя превысить? Можно ответить «ограничений нет».",
+	model.FieldExpectedResult:    "Давайте иначе: что команда должна показать вам в конце — прототип, работающий сервис или отчёт?",
+	model.FieldSuccessCriteria:   "Давайте иначе: что должно измениться через месяц после запуска, чтобы вы сказали «получилось»?",
+	model.FieldContact:           "Давайте иначе: кому команда может написать с вопросами — email, телефон или Telegram?",
+	model.FieldInteractionFormat: "Давайте иначе: как вам удобнее — короткий созвон раз в неделю или переписка в чате?",
+}
+
+// questionCap — потолок числа вопросов: 5, по явному запросу «ещё» — 8.
+func questionCap(more bool) int {
+	if more {
+		return MaxExtraQuestions
 	}
+	return MaxDynamicQuestions
+}
+
+// fieldState — closed: на поле дан ответ со сведениями (не шум и не пропуск); count — сколько раз поле спрошено.
+func fieldState(asked []model.Question) (closed map[model.FieldKey]bool, count map[model.FieldKey]int) {
+	closed, count = map[model.FieldKey]bool{}, map[model.FieldKey]int{}
+	for _, q := range asked {
+		count[q.FieldKey]++
+		if !rating.IsNoise(q.FieldKey, q.Answer) {
+			closed[q.FieldKey] = true
+		}
+	}
+	return closed, count
+}
+
+// askable — поле можно спросить: не закрыто и спрошено меньше maxAsksPerField раз (без зацикливания).
+func askable(k model.FieldKey, closed map[model.FieldKey]bool, count map[model.FieldKey]int) bool {
+	return !closed[k] && count[k] < maxAsksPerField
+}
+
+// stockQuestionFor — готовый вопрос по полю; повторный — другой формулировкой.
+func stockQuestionFor(k model.FieldKey, count map[model.FieldKey]int) *model.Question {
+	q := stockQuestion(k)
+	if count[k] > 0 && retryTexts[k] != "" {
+		q.Text = retryTexts[k]
+	}
+	return q
+}
+
+// nextQuestion (mock): поля, не раскрытые ни в черновике, ни в ответах со сведениями; до MinDynamicQuestions
+// (или по more) — по приоритету, дальше — только критичные, иначе done. Поле с ответом-шумом переспрашивается.
+func (mockClient) nextQuestion(_ context.Context, draft, _ string, asked []model.Question, more bool) (model.NextQuestionResult, error) {
+	text := draft
+	for _, q := range asked {
+		if !rating.IsNoise(q.FieldKey, q.Answer) {
+			text += "\n" + q.Answer
+		}
+	}
+	closed, count := fieldState(asked)
 	r := model.NextQuestionResult{MissingFields: []model.FieldKey{}}
 	for _, k := range missingFields(text) {
-		if !askedKeys[k] {
+		if !closed[k] {
 			r.MissingFields = append(r.MissingFields, k)
 		}
 	}
-	candidates := r.MissingFields
-	if len(asked) >= MinDynamicQuestions {
-		candidates = nil
-		for _, k := range criticalFields {
-			if slices.Contains(r.MissingFields, k) {
-				candidates = append(candidates, k)
-			}
+	var candidates []model.FieldKey
+	for _, k := range r.MissingFields {
+		if askable(k, closed, count) && (len(asked) < MinDynamicQuestions || more || slices.Contains(criticalFields, k)) {
+			candidates = append(candidates, k)
 		}
-		if len(candidates) == 0 {
-			r.Done, r.Reason = true, "критичные сведения есть или уже спрошены: данные, критерии успеха, контакт"
-			return r, nil
-		}
+	}
+	if len(candidates) == 0 && len(asked) >= MinDynamicQuestions && !more {
+		r.Done, r.Reason = true, "ключевые сведения есть или уже уточнены: данные, ожидаемый результат, критерии успеха, контакт"
+		return r, nil
 	}
 	if len(candidates) > 0 {
-		r.Question = stockQuestion(candidates[0])
+		r.Question = stockQuestionFor(candidates[0], count)
 	}
-	return r, nil // пусто при < Min — finishNext добьёт по padOrder
+	return r, nil // пусто при < Min или more — finishNext добьёт по padOrder
 }
 
-// finishNext — правила пошагового режима поверх любого backend: валидный ключ, без повторов полей;
-// < MinDynamicQuestions — всегда вопрос (done игнорируется); ≥ MaxDynamicQuestions — всегда done.
-func finishNext(r model.NextQuestionResult, asked []model.Question, draft string) model.NextQuestionResult {
-	askedKeys := map[model.FieldKey]bool{}
-	for _, q := range asked {
-		askedKeys[q.FieldKey] = true
-	}
+// finishNext — правила пошагового режима поверх любого backend: валидный ключ; поле, закрытое ответом
+// со сведениями, не спрашивается, а после шума/пропуска — переспрашивается (не больше maxAsksPerField раз);
+// < MinDynamicQuestions — всегда вопрос (done игнорируется); ≥ MaxDynamicQuestions — done;
+// more (явный запрос «ещё») — done модели игнорируется, потолок MaxExtraQuestions.
+func finishNext(r model.NextQuestionResult, asked []model.Question, draft string, more bool) model.NextQuestionResult {
+	closed, count := fieldState(asked)
 	// Название не спрашиваем никогда (берётся из черновика); контекст и потребность — только если черновик
 	// совсем короткий: «не переспрашивай известное», цена вопроса высока.
-	askedKeys[model.FieldTitle] = true
+	closed[model.FieldTitle] = true
 	if len([]rune(strings.TrimSpace(draft))) >= 60 {
-		askedKeys[model.FieldContext] = true
-		askedKeys[model.FieldNeed] = true
+		closed[model.FieldContext] = true
+		closed[model.FieldNeed] = true
 	}
 	missing := []model.FieldKey{}
 	for _, k := range r.MissingFields {
-		if validKey(k) && !askedKeys[k] && !slices.Contains(missing, k) {
+		if validKey(k) && !closed[k] && !slices.Contains(missing, k) {
 			missing = append(missing, k)
 		}
 	}
 	r.MissingFields = missing
 	n := len(asked)
-	if n >= MaxDynamicQuestions {
+	if n >= questionCap(more) {
 		r.Question, r.Done = nil, true
-		if r.Reason == "" {
+		if more {
+			r.Reason = "задано максимальное число вопросов (8), соберите карточку"
+		} else if r.Reason == "" {
 			r.Reason = "задано максимальное число вопросов"
 		}
 		return r
 	}
 	if q := r.Question; q != nil {
 		r.Question = nil
-		if t := strings.TrimSpace(q.Text); t != "" && validKey(q.FieldKey) && !askedKeys[q.FieldKey] {
+		if t := strings.TrimSpace(q.Text); t != "" && validKey(q.FieldKey) && askable(q.FieldKey, closed, count) {
 			typ := q.InputType
 			if !slices.Contains(model.InputTypes, typ) {
 				typ = model.InputText
@@ -224,23 +273,28 @@ func finishNext(r model.NextQuestionResult, asked []model.Question, draft string
 			if (typ == model.InputChoice || typ == model.InputMulti) && len(sg) < 2 {
 				typ = model.InputText // выбирать не из чего — свободный ответ
 			}
+			for _, old := range asked {
+				if old.FieldKey == q.FieldKey && strings.TrimSpace(old.Text) == t && retryTexts[q.FieldKey] != "" {
+					t = retryTexts[q.FieldKey] // модель повторила вопрос дословно — другая формулировка
+				}
+			}
 			r.Question = &model.Question{Text: t, FieldKey: q.FieldKey, InputType: typ, Suggestions: sg}
 		}
 	}
-	if r.Done && n >= MinDynamicQuestions {
+	if r.Done && n >= MinDynamicQuestions && !more {
 		r.Question = nil
 		return r
 	}
 	if r.Question == nil {
 		lists := [][]model.FieldKey{missing}
-		if n < MinDynamicQuestions {
+		if n < MinDynamicQuestions || more {
 			lists = append(lists, padOrder)
 		}
 	pick:
 		for _, list := range lists {
 			for _, k := range list {
-				if !askedKeys[k] {
-					r.Question = stockQuestion(k)
+				if askable(k, closed, count) {
+					r.Question = stockQuestionFor(k, count)
 					break pick
 				}
 			}

@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/model"
+	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/rating"
 )
 
 // Mock пошагового режима: 3–5 вопросов без повторов полей, done после критичных (данные, критерии, контакт).
@@ -22,7 +24,7 @@ func TestMockNextQuestionSequence(t *testing.T) {
 	}
 	var asked []model.Question
 	for {
-		r, err := c.NextQuestion(context.Background(), weakDraft, "Логистика", asked)
+		r, err := c.NextQuestion(context.Background(), weakDraft, "Логистика", asked, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -37,7 +39,7 @@ func TestMockNextQuestionSequence(t *testing.T) {
 			t.Fatalf("плохой вопрос: %+v", q)
 		}
 		for _, a := range asked {
-			if a.FieldKey == q.FieldKey {
+			if a.FieldKey == q.FieldKey && !rating.IsNoise(a.FieldKey, a.Answer) {
 				t.Fatalf("повтор поля %s", q.FieldKey)
 			}
 		}
@@ -51,7 +53,7 @@ func TestMockNextQuestionSequence(t *testing.T) {
 	for _, q := range asked {
 		got[q.FieldKey] = true
 	}
-	for _, k := range criticalFields {
+	for _, k := range []model.FieldKey{model.FieldData, model.FieldSuccessCriteria, model.FieldContact} {
 		if !got[k] {
 			t.Errorf("критичное поле %s не спрошено", k)
 		}
@@ -65,7 +67,7 @@ func TestMockNextQuestionSequence(t *testing.T) {
 func TestMockNextQuestionSkipsFieldsClosedByAnswers(t *testing.T) {
 	asked := []model.Question{{ID: 1, FieldKey: model.FieldContext, Answer: "Склад, данные в CRM, контакт ivan@firm.kz"}}
 	for len(asked) < MaxDynamicQuestions {
-		r, _ := New("", "").NextQuestion(context.Background(), weakDraft, "", asked)
+		r, _ := New("", "").NextQuestion(context.Background(), weakDraft, "", asked, false)
 		if r.Done {
 			break
 		}
@@ -83,14 +85,14 @@ func TestNextQuestionMinMax(t *testing.T) {
 	c := New("", "")
 	var asked []model.Question
 	for i := 0; i < MinDynamicQuestions; i++ {
-		r, _ := c.NextQuestion(context.Background(), draft, "", asked)
+		r, _ := c.NextQuestion(context.Background(), draft, "", asked, false)
 		if r.Done || r.Question == nil {
 			t.Fatalf("done при asked=%d", i)
 		}
 		asked = append(asked, *r.Question)
 	}
 	five := make([]model.Question, MaxDynamicQuestions)
-	r, _ := c.NextQuestion(context.Background(), weakDraft, "", five)
+	r, _ := c.NextQuestion(context.Background(), weakDraft, "", five, false)
 	if !r.Done || r.Question != nil {
 		t.Fatalf("при 5 вопросах ожидался done: %+v", r)
 	}
@@ -115,7 +117,7 @@ func TestOpenAINextDoneTooEarly(t *testing.T) {
 	defer srv.Close()
 	c := newClient("k", "", srv.URL)
 	asked := []model.Question{{ID: 1, FieldKey: model.FieldContext, Text: "?", Answer: "Склад"}}
-	r, err := c.NextQuestion(context.Background(), weakDraft, "", asked)
+	r, err := c.NextQuestion(context.Background(), weakDraft, "", asked, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,25 +142,25 @@ func TestOpenAINextQuestionRules(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := newClient("k", "", srv.URL)
-	asked := []model.Question{{ID: 1, FieldKey: model.FieldContext}}
+	asked := []model.Question{{ID: 1, FieldKey: model.FieldContext, Answer: "Склад, заявки в Excel"}}
 
 	payload = map[string]any{"done": false, "reason": "", "missing_fields": []string{"users"}, "question": map[string]any{
 		"text": "Кто будет пользоваться? (менеджеры)", "field_key": "users", "input_type": "multi",
 		"suggestions": []string{"Менеджеры", " ", "Менеджеры", "Клиенты"}}}
-	r, _ := c.NextQuestion(context.Background(), weakDraft, "", asked)
+	r, _ := c.NextQuestion(context.Background(), weakDraft, "", asked, false)
 	if r.Question == nil || r.Question.InputType != model.InputMulti || strings.Join(r.Question.Suggestions, "|") != "Менеджеры|Клиенты" {
 		t.Fatalf("вопрос модели: %+v", r.Question)
 	}
 
 	payload["question"] = map[string]any{"text": "Опять контекст?", "field_key": "context", "input_type": "bogus", "suggestions": []string{}}
-	r, _ = c.NextQuestion(context.Background(), weakDraft, "", asked)
+	r, _ = c.NextQuestion(context.Background(), weakDraft, "", asked, false)
 	if r.Question == nil || r.Question.FieldKey != model.FieldUsers {
 		t.Fatalf("повтор поля не заменён: %+v", r.Question)
 	}
 
 	three := []model.Question{{FieldKey: model.FieldContext}, {FieldKey: model.FieldData}, {FieldKey: model.FieldContact}}
 	payload = map[string]any{"done": true, "reason": "достаточно", "question": nil, "missing_fields": []string{}}
-	r, _ = c.NextQuestion(context.Background(), weakDraft, "", three)
+	r, _ = c.NextQuestion(context.Background(), weakDraft, "", three, false)
 	if !r.Done || r.Reason != "достаточно" || r.Question != nil {
 		t.Fatalf("done при asked=3 не принят: %+v", r)
 	}
@@ -170,5 +172,53 @@ func TestNextQuestionSchemaStrict(t *testing.T) {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("схема без %s", want)
 		}
+	}
+}
+
+// Шум не закрывает поле: остаётся в missing_fields, переспрашивается другой формулировкой, не больше 2 раз.
+func TestNextQuestionNoiseReasks(t *testing.T) {
+	c := New("", "")
+	r, _ := c.NextQuestion(context.Background(), weakDraft, "", nil, false)
+	first := *r.Question
+	first.Answer = "здравствуйте"
+	asked := []model.Question{first}
+	r, _ = c.NextQuestion(context.Background(), weakDraft, "", asked, false)
+	if r.Question == nil || r.Question.FieldKey != first.FieldKey || r.Question.Text == first.Text {
+		t.Fatalf("ожидался повтор %s другой формулировкой: %+v", first.FieldKey, r.Question)
+	}
+	if !slices.Contains(r.MissingFields, first.FieldKey) {
+		t.Fatalf("поле после шума пропало из missing: %v", r.MissingFields)
+	}
+	second := *r.Question
+	second.Answer = "не знаю"
+	r, _ = c.NextQuestion(context.Background(), weakDraft, "", append(asked, second), false)
+	if r.Question == nil || r.Question.FieldKey == first.FieldKey {
+		t.Fatalf("поле спрошено третий раз: %+v", r.Question)
+	}
+}
+
+// more после done: следующий вопрос вплоть до MaxExtraQuestions, дальше done с причиной.
+func TestNextQuestionMore(t *testing.T) {
+	c := New("", "")
+	var asked []model.Question
+	for {
+		r, _ := c.NextQuestion(context.Background(), weakDraft, "", asked, false)
+		if r.Done {
+			break
+		}
+		r.Question.Answer = "Ответ по делу про " + string(r.Question.FieldKey)
+		asked = append(asked, *r.Question)
+	}
+	for len(asked) < MaxExtraQuestions {
+		r, _ := c.NextQuestion(context.Background(), weakDraft, "", asked, true)
+		if r.Done || r.Question == nil {
+			t.Fatalf("more при asked=%d не дал вопрос: %+v", len(asked), r)
+		}
+		r.Question.Answer = "Ответ по делу"
+		asked = append(asked, *r.Question)
+	}
+	r, _ := c.NextQuestion(context.Background(), weakDraft, "", asked, true)
+	if !r.Done || r.Question != nil || r.Reason == "" {
+		t.Fatalf("после %d ожидался done: %+v", MaxExtraQuestions, r)
 	}
 }

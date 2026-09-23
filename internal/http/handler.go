@@ -310,7 +310,7 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 
 	var qs []model.Question
 	if dynamic {
-		nr, err := s.ai.NextQuestion(r.Context(), req.DraftText, req.Industry, nil)
+		nr, err := s.ai.NextQuestion(r.Context(), req.DraftText, req.Industry, nil, false)
 		if err != nil || nr.Question == nil {
 			writeError(w, http.StatusBadGateway, "AI недоступен: не удалось получить первый вопрос")
 			return
@@ -454,7 +454,8 @@ func (s *server) answers(w http.ResponseWriter, r *http.Request) {
 
 // nextQuestion — пошаговый режим: записать ответ на последний вопрос (если передан; "" = пропуск),
 // затем спросить AI следующий. Вопрос добавляется в task.questions; при done задача не меняется
-// (кроме записанного ответа), карточку собирает POST /answers.
+// (кроме записанного ответа), карточку собирает POST /answers. Запрос без answer (или {"more": true}) —
+// явное «спросить ещё»: done модели не мешает, следующий вопрос по пробелам вплоть до 8 всего.
 func (s *server) nextQuestion(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.loadTask(w, r)
 	if !ok {
@@ -465,6 +466,7 @@ func (s *server) nextQuestion(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		Answer *string `json:"answer"`
+		More   bool    `json:"more"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	raw, err := io.ReadAll(r.Body)
@@ -484,7 +486,8 @@ func (s *server) nextQuestion(w http.ResponseWriter, r *http.Request) {
 		answered = true
 	}
 
-	nr, err := s.ai.NextQuestion(r.Context(), t.DraftText, t.Industry, t.Questions)
+	more := req.More || (req.Answer == nil && len(t.Questions) > 0)
+	nr, err := s.ai.NextQuestion(r.Context(), t.DraftText, t.Industry, t.Questions, more)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "AI недоступен: "+err.Error())
 		return

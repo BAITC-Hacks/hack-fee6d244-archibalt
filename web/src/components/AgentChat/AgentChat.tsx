@@ -21,7 +21,7 @@ type Msg =
 type NewMsg = Msg extends infer M ? (M extends Msg ? Omit<M, 'id'> : never) : never
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
-const MAX_QUESTIONS = 5
+const MAX_QUESTIONS = 8
 const clip = (text: string, max = 120) => { const clean = text.trim().replace(/\s+/g, ' '); return clean.length > max ? `${clean.slice(0, max).trimEnd()}…` : clean }
 /** Причина от AI бывает со строчной и без точки. */
 const sentence = (text: string) => { const clean = capitalize(text.trim()); return /[.!?…]$/.test(clean) ? clean : `${clean}.` }

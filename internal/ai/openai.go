@@ -176,7 +176,7 @@ func (c *openAIClient) card(ctx context.Context, draft, industry string, qs []mo
 	return finishCard(model.Fields(res.Fields), draft, industry, qs), nil
 }
 
-func (c *openAIClient) nextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error) {
+func (c *openAIClient) nextQuestion(ctx context.Context, draft, industry string, asked []model.Question, more bool) (model.NextQuestionResult, error) {
 	var res struct {
 		Done     bool   `json:"done"`
 		Reason   string `json:"reason"`
@@ -188,7 +188,7 @@ func (c *openAIClient) nextQuestion(ctx context.Context, draft, industry string,
 		} `json:"question"`
 		MissingFields []model.FieldKey `json:"missing_fields"`
 	}
-	if err := c.callWith(ctx, c.fastModel, "next_question", PromptNextQuestion, nextQuestionUserMessage(draft, industry, asked), nextQuestionSchema(), &res); err != nil {
+	if err := c.callWith(ctx, c.fastModel, "next_question", PromptNextQuestion, nextQuestionUserMessage(draft, industry, asked, more), nextQuestionSchema(), &res); err != nil {
 		return model.NextQuestionResult{}, err
 	}
 	r := model.NextQuestionResult{Done: res.Done, Reason: strings.TrimSpace(res.Reason), MissingFields: res.MissingFields}
@@ -196,7 +196,7 @@ func (c *openAIClient) nextQuestion(ctx context.Context, draft, industry string,
 		q := res.Question
 		r.Question = &model.Question{Text: q.Text, FieldKey: q.FieldKey, InputType: q.InputType, Suggestions: guardSuggestions(q.Suggestions, sourceText(draft, industry, asked))}
 	}
-	return r, nil // валидация и правила 3..5 — в finishNext
+	return r, nil // валидация и правила 3..5 (по more — до 8) — в finishNext
 }
 
 // guardSuggestions — подсказки-кнопки становятся ответом пользователя и обходят Guard, поэтому

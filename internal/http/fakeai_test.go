@@ -38,8 +38,8 @@ func (fakeAI) Info() ai.Info {
 }
 
 // NextQuestion — настоящий mock из internal/ai (без ключа): детерминированная эвристика 3–5 вопросов.
-func (fakeAI) NextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error) {
-	return ai.New("", "").NextQuestion(ctx, draft, industry, asked)
+func (fakeAI) NextQuestion(ctx context.Context, draft, industry string, asked []model.Question, more bool) (model.NextQuestionResult, error) {
+	return ai.New("", "").NextQuestion(ctx, draft, industry, asked, more)
 }
 
 // ResultOptions — настоящий mock из internal/ai: 2 детерминированных варианта по ответам.
