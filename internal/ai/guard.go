@@ -13,35 +13,58 @@ import (
 const guardThreshold = 0.6
 
 // Guard — защита от выдуманных фактов (ТЗ §5). Возвращает копию со всеми 10 ключами,
-// где каждое непустое поле, кроме title, сохранено, только если ≥ 60% его значимых слов
-// (длина ≥ 4, грубый стем — первые 5 букв) и все числа встречаются в sourceText.
+// где каждое непустое поле (включая title) сохранено, только если ≥ 60% его значимых слов
+// (длина ≥ 4, грубый стем — первые 5 букв) встречаются в sourceText, а каждое число стоит
+// в источнике рядом с тем же словом (см. supported). Пустой title заполняет finishCard.
 func Guard(fields model.Fields, sourceText string) model.Fields {
 	src := map[string]bool{}
-	for _, t := range tokens(sourceText) {
+	ts := tokens(sourceText)
+	for i, t := range ts {
 		src[t] = true
 		src[stem(t)] = true
+		if r := []rune(t); len(r) > 4 {
+			src[string(r[:4])] = true // слово из 4 букв («учёт») совпадает с формой «учёта»
+		}
+		if hasDigit(t) { // в источнике — обе пары: с соседом справа и слева
+			src[numPair(ts, i)] = true
+			if i > 0 {
+				src[numPair(ts[:i+1], i)] = true
+			}
+		}
 	}
 	out := fields.Full()
 	for _, k := range model.FieldKeys {
 		v := strings.TrimSpace(out[k])
 		out[k] = v
-		if k == model.FieldTitle || v == "" {
-			continue
-		}
-		if !supported(v, src) {
+		if v != "" && !supported(v, src) {
 			out[k] = ""
 		}
 	}
 	return out
 }
 
-// supported: все числа поля есть в источнике и ≥ 60% слов длиной ≥ 4 совпадают по стему.
+// numPair — ключ «число + следующее слово (стем)»; для числа в конце текста —
+// «предыдущее слово (стем) + число»; для одиночного числа — само число.
+func numPair(ts []string, i int) string {
+	switch {
+	case i+1 < len(ts):
+		return "#" + ts[i] + " " + stem(ts[i+1])
+	case i > 0:
+		return "#" + stem(ts[i-1]) + " " + ts[i]
+	}
+	return ts[i]
+}
+
+// supported: каждое число поля стоит в источнике в той же паре со словом (numPair) —
+// «2» из «2 недели» нельзя перенести в «до 2 операторов», — и ≥ 60% слов длиной ≥ 4
+// совпадают по стему.
 func supported(v string, src map[string]bool) bool {
 	var total, hit int
-	for _, t := range tokens(v) {
+	ts := tokens(v)
+	for i, t := range ts {
 		switch {
 		case hasDigit(t):
-			if !src[t] {
+			if !src[numPair(ts, i)] {
 				return false
 			}
 		case len([]rune(t)) >= 4:
@@ -126,10 +149,24 @@ func finishCard(fields model.Fields, draft, industry string, qs []model.Question
 	return model.CardResult{Fields: out}
 }
 
+// titleStopWords — служебные слова, на которых название не должно обрываться.
+var titleStopWords = map[string]bool{"в": true, "на": true, "с": true, "и": true, "а": true, "но": true,
+	"для": true, "по": true, "к": true, "у": true, "о": true, "от": true, "до": true, "из": true,
+	"что": true, "как": true, "все": true, "всё": true, "без": true}
+
+// firstWords — первые n слов без хвостовых предлогов/союзов/частиц и завершающих «,», «—», «:».
 func firstWords(s string, n int) string {
 	w := strings.Fields(s)
 	if len(w) > n {
 		w = w[:n]
+	}
+	for len(w) > 0 {
+		last := strings.TrimRight(w[len(w)-1], ",;:-–—")
+		if last != "" && (len(w) == 1 || !titleStopWords[strings.ToLower(last)]) {
+			w[len(w)-1] = last
+			break
+		}
+		w = w[:len(w)-1]
 	}
 	return strings.Join(w, " ")
 }

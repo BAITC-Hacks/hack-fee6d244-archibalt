@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/model"
@@ -126,7 +127,34 @@ func (mockClient) card(_ context.Context, draft, industry string, qs []model.Que
 	if !answered[model.FieldContext] {
 		f[model.FieldContext] = strings.TrimSpace(draft)
 	}
+	if !answered[model.FieldNeed] {
+		if need := needFragment(draft); need != "" {
+			f[model.FieldNeed] = need
+		}
+	}
 	return finishCard(f, draft, industry, qs), nil
+}
+
+// needMarkers — слова, с которых в черновике начинается формулировка потребности.
+var needMarkers = map[string]bool{"нужно": true, "хотим": true, "требуется": true, "надо": true, "необходимо": true}
+
+// needFragment — первый фрагмент черновика от маркера потребности (включительно) до конца
+// предложения: «…, поэтому нужно приложение для учёта.» → «Нужно приложение для учёта».
+// Маркер сохраняется, чтобы поле читалось как законченная фраза. Без маркера — "".
+func needFragment(draft string) string {
+	sentences := strings.FieldsFunc(draft, func(r rune) bool { return strings.ContainsRune(".!?;\n", r) })
+	for _, sent := range sentences {
+		ws := strings.Fields(sent)
+		for i := 0; i+1 < len(ws); i++ {
+			if !needMarkers[strings.ToLower(strings.Trim(ws[i], ",:—–-«»\"()"))] {
+				continue
+			}
+			frag := strings.TrimRight(strings.Join(ws[i:], " "), ",:;—–- ")
+			r, n := utf8.DecodeRuneInString(frag)
+			return string(unicode.ToUpper(r)) + frag[n:]
+		}
+	}
+	return ""
 }
 
 func validKey(k model.FieldKey) bool {

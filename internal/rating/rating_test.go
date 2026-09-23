@@ -238,7 +238,8 @@ func TestCounterexamples(t *testing.T) {
 		{"число с метрикой", model.Fields{model.FieldSuccessCriteria: "снизить время обработки заявки на 30%"}, "success_criteria", 15},
 		{"рост без числа", model.Fields{model.FieldSuccessCriteria: "рост продаж и снижение нагрузки на операторов"}, "success_criteria", 7},
 		{"сценарий приёмки", model.Fields{model.FieldSuccessCriteria: "Принимаем, если на 20 реальных заявках бот верно определит категорию"}, "success_criteria", 15},
-		{"данных нет", model.Fields{model.FieldData: "Данных нет, выгрузка недоступна"}, "data", 10},
+		{"данных нет — отказ", model.Fields{model.FieldData: "Данных нет, выгрузка недоступна"}, "data", 0},
+		{"материал недоступен без плана", model.Fields{model.FieldData: "Выгрузка из CRM недоступна"}, "data", 10},
 		{"данных нет с планом", model.Fields{model.FieldData: "Данных пока нет, соберём образцы заявок в течение недели"}, "data", 20},
 		{"материал + передача", model.Fields{model.FieldData: "Выгрузка из CRM за 2 года, передадим в первую неделю"}, "data", 20},
 		{"материал без передачи", model.Fields{model.FieldData: "Выгрузка из CRM за 2 года"}, "data", 10},
@@ -257,7 +258,7 @@ func TestCounterexamples(t *testing.T) {
 }
 
 func TestNoLengthHintsAndMeaningfulReasons(t *testing.T) {
-	r := Compute(model.Fields{model.FieldContext: "Заявки вручную", model.FieldNeed: "Автоматизировать"}, false)
+	r := Compute(model.Fields{model.FieldContext: "Заявки обрабатываем вручную", model.FieldNeed: "Автоматизировать приём заявок"}, false)
 	checkInvariants(t, r)
 	b := r.Breakdown[0]
 	if b.Earned != 10 || !strings.Contains(b.Reason, "опишите, что происходит сейчас и что нужно изменить") {
@@ -304,5 +305,147 @@ func TestRepeatAndSpacesDoNotHelp(t *testing.T) {
 		if many.Breakdown[i].Earned > one.Breakdown[i].Earned {
 			t.Errorf("%s: повтор %d > одна фраза %d", one.Breakdown[i].Key, many.Breakdown[i].Earned, one.Breakdown[i].Earned)
 		}
+	}
+}
+
+// Мусор без признаков показателя и короче 3 значимых слов — 0 по каждому показателю.
+func TestJunkGivesZero(t *testing.T) {
+	for _, v := range []string{"asdf", "сделать хорошо", "Иван", "--- ---", "ok ok ok"} {
+		r := Compute(allFields(v), false)
+		checkInvariants(t, r)
+		for _, b := range r.Breakdown {
+			if b.Earned != 0 {
+				t.Errorf("%q: %s = %d (%s)", v, b.Key, b.Earned, b.Reason)
+			}
+		}
+	}
+	r := Compute(allFields("сделать хорошо"), false)
+	if got := r.Breakdown[1].Reason; got != "Не заполнено: нет сведений по показателю" {
+		t.Errorf("reason = %q", got)
+	}
+	// Короткий текст с признаком — не мусор.
+	cases := []struct {
+		k    model.FieldKey
+		text string
+		want state
+	}{
+		{model.FieldUsers, "10 менеджеров сервисного центра", stFull},
+		{model.FieldExpectedResult, "Прототип", stPartial},
+		{model.FieldInteractionFormat, "Еженедельный созвон", stFull},
+		{model.FieldContext, "Заявки вручную", stJunk},
+		{model.FieldNeed, "Автоматизировать приём заявок", stPartial},
+	}
+	for _, c := range cases {
+		if got := evalField(c.k, c.text).st; got != c.want {
+			t.Errorf("%s %q: state %d, want %d", c.k, c.text, got, c.want)
+		}
+	}
+}
+
+// Отказ без плана или альтернативы — 0 с причиной «Сведения отсутствуют (отказ)».
+func TestRefusalGivesZero(t *testing.T) {
+	cases := []struct {
+		k    model.FieldKey
+		key  string
+		text string
+	}{
+		{model.FieldData, "data", "Никаких файлов не передадим, данных у нас не будет никогда"},
+		{model.FieldSuccessCriteria, "success_criteria", "Критериев нет, тест не планируем, 0 процентов"},
+		{model.FieldUsers, "users", "Пользователей нет, клиентов тоже"},
+		{model.FieldInteractionFormat, "business_link", "Встреч не будет, чат не ведём каждый день"},
+	}
+	for _, c := range cases {
+		r := Compute(model.Fields{c.k: c.text}, false)
+		checkInvariants(t, r)
+		for _, b := range r.Breakdown {
+			if b.Key == c.key && (b.Earned != 0 || b.Reason != "Сведения отсутствуют (отказ)") {
+				t.Errorf("%q: %s = %d %q", c.text, b.Key, b.Earned, b.Reason)
+			}
+		}
+	}
+	for _, text := range []string{"персональных данных нет, работаем с обезличенными логами",
+		"Данных пока нет, соберём образцы заявок в течение недели"} {
+		if st := evalField(model.FieldConstraints, text).st; st == stRefusal {
+			t.Errorf("%q принят за отказ", text)
+		}
+	}
+}
+
+// Слова-заглушки внутри текста: без них остаётся меньше 3 значимых слов — 0.
+func TestStubWordsInsideText(t *testing.T) {
+	for _, v := range []string{"xxx 1 раз", "x клиент", "tbd до", "todo сервис", "тест тест ок да",
+		"не знаю не знаю пока нет информации позже заполню обязательно честно"} {
+		r := Compute(allFields(v), false)
+		checkInvariants(t, r)
+		if r.Score != 0 {
+			t.Errorf("%q: score %d, %+v", v, r.Score, r.Breakdown)
+		}
+	}
+}
+
+func TestPhoneNeedsDistinctDigits(t *testing.T) {
+	for _, v := range []string{"0000000000", "+7 000 000 00 00"} {
+		r := Compute(model.Fields{model.FieldContact: v, model.FieldInteractionFormat: "x"}, false)
+		if got := earnedOf(r, "business_link"); got != 0 {
+			t.Errorf("contact %q: business_link = %d", v, got)
+		}
+	}
+	if evalField(model.FieldContact, "+7 701 123 45 67").reason != "указан телефон" {
+		t.Error("настоящий телефон не принят")
+	}
+}
+
+// Причина полного балла называет найденный признак.
+func TestFullReasonNamesSign(t *testing.T) {
+	want := map[string][]string{
+		"context_need":     {"описана текущая ситуация", "описана потребность"},
+		"data":             {"назван материал (выгрузка)", "способ или срок передачи"},
+		"expected_result":  {"назван артефакт (прототип)"},
+		"success_criteria": {"есть число с единицей (85%)"},
+		"constraints":      {"указано ограничение (срок)"},
+		"users":            {"названа роль (менеджеры)"},
+		"business_link":    {"указан email", "указаны канал и ритм общения"},
+	}
+	for _, b := range Compute(fullCard(), true).Breakdown {
+		if !strings.HasPrefix(b.Reason, "Заполнено полностью: ") {
+			t.Errorf("%s reason = %q", b.Key, b.Reason)
+		}
+		for _, w := range want[b.Key] {
+			if !strings.Contains(b.Reason, w) {
+				t.Errorf("%s reason %q не содержит %q", b.Key, b.Reason, w)
+			}
+		}
+	}
+}
+
+// Кейсы QA.
+func TestQACases(t *testing.T) {
+	cases := []struct {
+		name   string
+		f      model.Fields
+		key    string
+		want   int
+		reason string
+	}{
+		{"роль сотрудники", model.Fields{model.FieldUsers: "Сотрудники приёма заказов координируют очередь, проверяют полноту описания и передают работу"}, "users", 10, "названа роль (сотрудники)"},
+		{"приёмка без числа", model.Fields{model.FieldSuccessCriteria: "Начальник смены принимает результат после проверки пилота, когда оператор сам находит заказ и меняет статус"}, "success_criteria", 15, "описан способ проверки"},
+		{"передадим позже", model.Fields{model.FieldData: "Данные есть, передадим позже"}, "data", 10, "не указано, как и когда"},
+		{"передадим файлом через неделю", model.Fields{model.FieldData: "Данные есть, передадим файлом через неделю"}, "data", 20, ""},
+		{"абстрактная метрика", model.Fields{model.FieldSuccessCriteria: "Улучшить качество на 50%"}, "success_criteria", 15, "измеримо, но не сказано, как измеряется качество"},
+	}
+	for _, c := range cases {
+		r := Compute(c.f, false)
+		checkInvariants(t, r)
+		for _, b := range r.Breakdown {
+			if b.Key != c.key {
+				continue
+			}
+			if b.Earned != c.want || !strings.Contains(b.Reason, c.reason) {
+				t.Errorf("%s: %s = %d %q, want %d %q", c.name, b.Key, b.Earned, b.Reason, c.want, c.reason)
+			}
+		}
+	}
+	if r := Compute(fullCard(), true); strings.Contains(r.Breakdown[3].Reason, "измеримо, но") {
+		t.Errorf("ложное предупреждение: %q", r.Breakdown[3].Reason)
 	}
 }

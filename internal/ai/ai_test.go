@@ -257,3 +257,88 @@ func TestOpenAIBadStructureFallsBack(t *testing.T) {
 		t.Errorf("mode = %s, last_error = %v", c.Mode(), c.Info().LastError)
 	}
 }
+
+// need в mock берётся из черновика от маркера до конца предложения; маркер сохраняется.
+func TestMockCardNeedFromDraft(t *testing.T) {
+	r, err := New("", "").Card(context.Background(), weakDraft, "Логистика", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Fields[model.FieldNeed]; got != "Нужно приложение для учёта заявок" {
+		t.Errorf("need = %q", got)
+	}
+	cases := map[string]string{
+		"Сейчас всё в таблицах, поэтому хотим бота для склада. Срок месяц": "Хотим бота для склада",
+		"Требуется: отчёт по продажам!":                                    "Требуется: отчёт по продажам",
+		"Заявки идут в почту.\nНадо разбирать их быстрее, —":               "Надо разбирать их быстрее",
+		"Просто описание без маркера":                                      "",
+		"Нужно.": "",
+	}
+	for in, want := range cases {
+		if got := needFragment(in); got != want {
+			t.Errorf("needFragment(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// ответ на вопрос про need важнее черновика
+	r, _ = New("", "").Card(context.Background(), weakDraft, "", []model.Question{
+		{ID: 1, FieldKey: model.FieldNeed, Answer: "Учёт заявок в одном месте"}})
+	if r.Fields[model.FieldNeed] != "Учёт заявок в одном месте" {
+		t.Errorf("need = %q", r.Fields[model.FieldNeed])
+	}
+}
+
+func TestFirstWordsNoTrailingServiceWord(t *testing.T) {
+	cases := map[string]string{
+		"Нашим менеджерам нужно быстрее обрабатывать входящие заявки клиентов, сейчас всё в таблицах": "Нашим менеджерам нужно быстрее обрабатывать входящие заявки клиентов",
+		"Хотим бота для склада и":                                                   "Хотим бота для склада",
+		"Учёт заявок — сейчас всё в таблицах и почте":                               "Учёт заявок — сейчас всё в таблицах",
+		"Нашим менеджерам нужно быстрее обрабатывать заявки, сейчас всё в таблицах": "Нашим менеджерам нужно быстрее обрабатывать заявки, сейчас",
+		"Отчёт по продажам, без лишнего":                                            "Отчёт по продажам, без лишнего",
+		"Отчёт по продажам,":                                                        "Отчёт по продажам",
+		"":                                                                          "",
+	}
+	for in, want := range cases {
+		got := firstWords(in, 8)
+		if got != want {
+			t.Errorf("firstWords(%q) = %q, want %q", in, got, want)
+		}
+		ws := strings.Fields(got)
+		if len(ws) > 1 && titleStopWords[strings.ToLower(ws[len(ws)-1])] {
+			t.Errorf("firstWords(%q) заканчивается служебным словом: %q", in, got)
+		}
+	}
+}
+
+// Число засчитывается, только если в источнике оно стоит рядом с тем же словом.
+func TestGuardNumberNeedsSameNeighbour(t *testing.T) {
+	src := "Сейчас 30 операторов обрабатывают 500 заявок в день, срок 2 недели"
+	f := Guard(model.Fields{
+		model.FieldNeed:            "Снизить число операторов до 2, обрабатывать 500 заявок",
+		model.FieldContext:         "500 заявок в день",
+		model.FieldConstraints:     "Срок 2 недели",
+		model.FieldSuccessCriteria: "Сейчас 30 операторов", // число в середине
+		model.FieldUsers:           "операторов 30",        // число в конце: сосед слева не совпадает
+	}, src)
+	if f[model.FieldNeed] != "" {
+		t.Errorf("перенесённое число не удалено: %q", f[model.FieldNeed])
+	}
+	if f[model.FieldContext] == "" || f[model.FieldConstraints] == "" || f[model.FieldSuccessCriteria] == "" {
+		t.Errorf("честные поля с числами удалены: %+v", f)
+	}
+	if f[model.FieldUsers] != "" {
+		t.Errorf("число с чужим соседом сохранено: %q", f[model.FieldUsers])
+	}
+}
+
+// title проверяется Guard'ом; выдуманный заменяется началом черновика.
+func TestGuardChecksTitle(t *testing.T) {
+	const draft = "хотим бота для склада"
+	title := "Сбербанк: ИИ-платформа на 10 млн клиентов"
+	if f := Guard(model.Fields{model.FieldTitle: title}, draft); f[model.FieldTitle] != "" {
+		t.Errorf("выдуманный title сохранён: %q", f[model.FieldTitle])
+	}
+	r := finishCard(model.Fields{model.FieldTitle: title}, draft, "", nil)
+	if r.Fields[model.FieldTitle] != firstWords(draft, 8) || r.Fields[model.FieldTitle] != "хотим бота для склада" {
+		t.Errorf("title = %q", r.Fields[model.FieldTitle])
+	}
+}
