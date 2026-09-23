@@ -46,7 +46,10 @@ func Guard(fields model.Fields, sourceText string) model.Fields {
 	for _, k := range model.FieldKeys {
 		v := strings.TrimSpace(out[k])
 		out[k] = v
-		if v != "" && (!supported(v, src) || inventedName(v, src) || polarityFlipped(polarity(v), srcPol)) {
+		// context и need — пересказ черновика: «не видна картина» → «дать видеть картину» это не смена смысла,
+		// поэтому проверку полярности к ним не применяем (человек подтверждает карточку).
+		flip := k != model.FieldContext && k != model.FieldNeed && polarityFlipped(polarity(v), srcPol)
+		if v != "" && (!supported(v, src) || inventedName(v, src) || flip) {
 			out[k] = ""
 		}
 	}
