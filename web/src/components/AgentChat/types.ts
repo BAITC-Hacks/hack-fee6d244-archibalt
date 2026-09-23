@@ -29,6 +29,8 @@ export interface ChatSession {
   history: AgentQuestion[]
   /** Индекс выбранного варианта результата: после сборки карточки применяется ещё раз, чтобы сборка его не затёрла. */
   chosen?: number
+  /** Задача создана без входа: перед сборкой карточки её нужно присвоить вошедшему заявителю (claim). */
+  anonymous?: boolean
   /** Только legacy/mock: очередь вопросов и ответы, которые копятся на клиенте. */
   local?: { queue: AgentQuestion[]; asked: AgentQuestion[]; answers: Record<string, string>; base: number; card: Fields }
 }
@@ -44,4 +46,6 @@ export interface Transport {
   /** Перенести вариант в «Ожидаемый результат» и «Критерии успеха». */
   applyResult(session: ChatSession, index: number, token: string): Promise<void>
   finish(session: ChatSession, token: string): Promise<Pick<Task, 'id' | 'score'>>
+  /** Присвоить анонимную задачу вошедшему заявителю: POST /tasks/{id}/owner. */
+  claim?(session: ChatSession, token: string): Promise<void>
 }

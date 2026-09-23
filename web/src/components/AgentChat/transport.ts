@@ -33,7 +33,7 @@ function advance(session: ChatSession, answer: string | undefined) {
 const liveTransport: Transport = {
   async start(input, token) {
     const task = await api<Task>('/tasks', withToken(token, json('POST', { draft_text: input.draftText, industry: input.industry, mode: 'dynamic' })))
-    return sessionFromTask(task)
+    return { ...sessionFromTask(task), anonymous: !token }
   },
   async next(session, answer, token) {
     if (session.mode === 'legacy') { advance(session, answer); return localStep(session, 'Вопросы закончились. Соберу карточку из ваших ответов, её можно будет поправить.') }
@@ -48,15 +48,26 @@ const liveTransport: Transport = {
     catch (err) { if (err instanceof ApiError && err.status === 401) throw err; return [] }
   },
   async applyResult(session, index, token) {
+    await claimIfNeeded(session, token)
     await api<Task>(`/tasks/${session.taskId}/apply-result`, withToken(token, json('POST', { index })))
   },
   async finish(session, token) {
+    await claimIfNeeded(session, token)
     const answers = session.mode === 'legacy' ? session.local!.answers : {}
     const task = await api<Task>(`/tasks/${session.taskId}/answers`, withToken(token, json('POST', { answers })))
     // Сборка карточки пишет поля заново — выбранный вариант результата кладём поверх.
     if (session.chosen === undefined) return task
     try { return await api<Task>(`/tasks/${session.taskId}/apply-result`, withToken(token, json('POST', { index: session.chosen }))) } catch { return task }
   },
+  async claim(session, token) {
+    await api<Task>(`/tasks/${session.taskId}/owner`, withToken(token, json('POST', {})))
+    session.anonymous = false
+  },
+}
+
+/** Анонимную задачу сначала присваиваем вошедшему; без токена сервер ответит 401 — AgentChat откроет вход и повторит действие. */
+async function claimIfNeeded(session: ChatSession, token: string) {
+  if (session.anonymous && token) await liveTransport.claim!(session, token)
 }
 
 /** Сессия по задаче: новой (после POST /tasks) или ранее начатой (GET /tasks/{id}). */

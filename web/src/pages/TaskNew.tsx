@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import type { CatalogResponse } from '../api'
 import { useAgentChat } from '../components/AgentChat'
 import { readDraft, saveDraft } from '../fields'
-import { useSession } from '../session'
 import { Button, Chips, Field, Textarea } from '../ui'
 import { useLoad } from '../useLoad'
 
@@ -11,15 +10,13 @@ export const DRAFT_PLACEHOLDER = 'Языковой центр вырос из Ex
 /** Бэкенд требует непустую отрасль; до чата её не спрашиваем. */
 export const DEFAULT_INDUSTRY = 'Другое'
 
-/** Сразу открыть диалог с агентом. Без входа — сначала вход, затем диалог. Пустой текст — агент сам спросит суть в чате. */
+/** Сразу открыть диалог с агентом, вход не нужен: он понадобится только при сборке карточки. Пустой текст — агент сам спросит суть в чате. */
 export function useStartChat() {
-  const { openAgentChat } = useAgentChat(); const { business, requestLogin } = useSession()
+  const { openAgentChat } = useAgentChat()
   return (draft = '', industry = readDraft().industry) => {
     const text = draft.trim()
     if (text) saveDraft(text, industry)
-    const open = () => openAgentChat({ draftText: text, industry: industry.trim() || DEFAULT_INDUSTRY })
-    if (!business) { requestLogin('business', open); return }
-    open()
+    openAgentChat({ draftText: text, industry: industry.trim() || DEFAULT_INDUSTRY })
   }
 }
 

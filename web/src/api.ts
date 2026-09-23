@@ -28,5 +28,6 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 export const json = (method: 'POST' | 'PUT', body?: unknown): RequestInit => ({ method, body: body === undefined ? undefined : JSON.stringify(body) })
-export const withToken = (token: string, options: RequestInit = {}): RequestInit => ({ ...options, headers: { ...options.headers, Authorization: `Bearer ${token}` } })
+/** Пустой токен — без заголовка Authorization (анонимный диалог). */
+export const withToken = (token: string, options: RequestInit = {}): RequestInit => (token ? { ...options, headers: { ...options.headers, Authorization: `Bearer ${token}` } } : options)
 export const withAuth = (token: string | undefined, options: RequestInit = {}): RequestInit => (token ? withToken(token, options) : options)
