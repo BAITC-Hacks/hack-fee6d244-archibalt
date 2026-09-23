@@ -222,3 +222,21 @@ func TestNextQuestionMore(t *testing.T) {
 		t.Fatalf("после %d ожидался done: %+v", MaxExtraQuestions, r)
 	}
 }
+
+// OpenAI сменил тему после ответа-шума — правило поверх модели уточняет ту же тему другой формулировкой.
+func TestOpenAINextReasksAfterNoise(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(responsesBody(t, map[string]any{"done": true, "reason": "хватит", "missing_fields": []string{}, "question": nil}))
+	}))
+	defer srv.Close()
+	c := newClient("k", "", srv.URL)
+	asked := []model.Question{
+		{FieldKey: model.FieldContext, Text: questionTexts[model.FieldContext], Answer: "Склад"},
+		{FieldKey: model.FieldUsers, Text: questionTexts[model.FieldUsers], Answer: "Сотрудники склада"},
+		{FieldKey: model.FieldData, Text: questionTexts[model.FieldData], Answer: "по-разному"},
+	}
+	r, _ := c.NextQuestion(context.Background(), weakDraft, "", asked, false)
+	if r.Done || r.Question == nil || r.Question.FieldKey != model.FieldData || r.Question.Text != retryTexts[model.FieldData] || len(r.Question.Suggestions) < 2 {
+		t.Fatalf("ожидалось уточнение data другой формулировкой: %+v", r.Question)
+	}
+}
