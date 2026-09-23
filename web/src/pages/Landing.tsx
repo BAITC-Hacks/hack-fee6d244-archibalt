@@ -52,12 +52,13 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
       <AnimatedBackground />
       <div className="container landing-hero-grid">
       <div className="landing-hero-copy">
-        <h1>Сырой запрос → задача с оценкой <span className="nowrap">0–100</span>. <em>Команды выбирают сами.</em></h1>
-        <p className="lead">AI задаёт 3–5 вопросов и собирает карточку только из ваших слов, ничего не додумывая, — каждую строку вы проверяете и подтверждаете сами. Оценка объясняет, что добавить, а задача попадает в открытый каталог, где студенческие команды откликаются сами.</p>
+        <h1>От проблемы бизнеса — <em>к решению со студенческой командой.</em></h1>
+        <p className="lead">AI поможет разобраться в задаче и составить понятное ТЗ. Студенческие команды смогут предложить решения, а вы выберете, с кем работать.</p>
         <div className="hero-secondary">
           <Button variant="primary" size="lg" onClick={discuss}>Обсудить задачу</Button>
           <ButtonLink variant="secondary" size="lg" to="/catalog" onClick={() => setMode('team')}>Найти задачу</ButtonLink>
         </div>
+        <p className="hero-micro">Можно начать без готового ТЗ.</p>
       </div>
       <div className="hero-visual">
         <div className="hero-score glass">

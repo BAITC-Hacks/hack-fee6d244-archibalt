@@ -139,7 +139,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
       })
     } else if (intro) {
       // Пустой черновик: сначала спрашиваем суть, задачу создаёт первое сообщение (см. submit).
-      push({ kind: 'agent', text: 'Расскажите своими словами: чем занимаетесь и что сейчас мешает?' })
+      push({ kind: 'agent', text: 'Здравствуйте! Помогу разобраться в задаче и собрать понятное ТЗ. Расскажите немного о бизнесе и о том, что хотелось бы улучшить.' })
       setText(readDraft().text)
       window.setTimeout(() => input.current?.focus({ preventScroll: true }), 0)
     } else begin(start.draftText)
