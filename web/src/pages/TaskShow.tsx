@@ -74,17 +74,20 @@ export function TaskShow({ mode }: { mode: Mode }) {
           {task.proposals?.length ? <ProposalTable proposals={task.proposals} teams={teams} canDecide={owner && mode === 'business'} update={() => void refresh()} /> : <EmptyState slim title="Станьте первой командой">Здесь появятся идеи и планы тех, кто хочет решить задачу.</EmptyState>}
         </section>
         {!owner && <section className="task-panel task-response" id="respond">
-          <div className="task-panel-heading"><span className="task-section-number">05</span><h2>Предложите своё решение</h2></div>
-          <p className="task-panel-note">Расскажите, что сделаете и за какой срок. Бизнес увидит ваш отклик и решит, готов ли работать с вами.</p>
+          <div className="task-panel-heading"><span className="task-section-number">05</span><h2>Откликнуться на задачу</h2></div>
+          <p className="task-panel-note">Расскажите, как решите задачу. Готовый продукт для отклика не нужен.</p>
           {!published ? <Alert>Отклики станут доступны после публикации задачи.</Alert> : <>
-            {checking ? <p className="task-response-team"><Spinner size="sm" /> Проверяем вход…</p> : team ? <p className="task-response-team">Вы откликаетесь как <strong>{team.team.name}</strong></p> : <p className="task-response-team">Можно заполнить сейчас. Войти в команду попросим при отправке.</p>}
+            <div className="task-response-meta">
+              {checking ? <p className="task-response-team"><Spinner size="sm" /> Проверяем вход…</p> : team ? <p className="task-response-team">От команды <strong>{team.team.name}</strong></p> : <p className="task-response-team">Заполните сейчас — войдите при отправке.</p>}
+              <span>Все 4 поля обязательны</span>
+            </div>
             <form onSubmit={submit} noValidate className="task-response-form">
               {submitError && <Alert tone="error" className="task-form-wide">{submitError}</Alert>}
-              <Field label="Что вы предлагаете сделать" required><Textarea minRows={4} value={idea} onChange={event => setIdea(event.target.value)} placeholder="Опишите своё решение и что получит бизнес" /></Field>
-              <Field label="Как вы будете работать" required><Textarea minRows={4} value={plan} onChange={event => setPlan(event.target.value)} placeholder="Основные шаги: от знакомства с данными до готового результата" /></Field>
-              <Field label="За какой срок" required><Input value={deadline} onChange={event => setDeadline(event.target.value)} placeholder="Например, 3 недели" /></Field>
-              <Field label="Ссылка на прототип или материалы" required hint="Подойдёт ссылка на макет, репозиторий или документ с идеей."><Input type="url" inputMode="url" value={link} onChange={event => setLink(event.target.value)} placeholder="https://..." /></Field>
-              <div className="task-response-submit task-form-wide"><Button type="submit" variant="primary" size="lg" loading={busy}>{busy ? 'Отправляем…' : 'Отправить отклик'} <span aria-hidden="true">↗</span></Button><p>Отклик виден всем.<br />К работе переходите после согласования с бизнесом.</p></div>
+              <Field className="task-form-wide" label="Ваша идея" required hint="Что вы создадите и какую пользу это принесёт бизнесу."><Textarea minRows={3} value={idea} onChange={event => setIdea(event.target.value)} placeholder="Предлагаем сделать… В результате бизнес сможет…" /></Field>
+              <Field className="task-form-wide" label="План работы" required hint="Достаточно основных этапов — подробное техническое задание не нужно."><Textarea minRows={3} value={plan} onChange={event => setPlan(event.target.value)} placeholder={'1. Изучим задачу и данные\n2. Соберём и проверим прототип\n3. Передадим результат бизнесу'} /></Field>
+              <Field label="Срок выполнения" required hint="Сколько времени нужно от старта до результата."><Input value={deadline} onChange={event => setDeadline(event.target.value)} placeholder="Например, 3 недели" /></Field>
+              <Field label="Ссылка на материалы" required hint="Макет, репозиторий или документ с идеей. Откройте доступ по ссылке."><Input type="url" inputMode="url" value={link} onChange={event => setLink(event.target.value)} placeholder="https://…" /></Field>
+              <div className="task-response-submit task-form-wide"><p>Отклик будет виден всем.<br />Начало работы — после согласования с бизнесом.</p><Button type="submit" variant="primary" size="lg" loading={busy}>{busy ? 'Отправляем…' : 'Отправить отклик'} <span aria-hidden="true">→</span></Button></div>
             </form>
           </>}
         </section>}
