@@ -39,7 +39,7 @@ export function ProposalChat({ proposalId, token, me }: { proposalId: number; to
       ws.onmessage = event => {
         let frame: Frame
         try { frame = JSON.parse(String(event.data)) as Frame } catch { return }
-        if (frame.type === 'history') setMessages(current => merge(current, frame.messages))
+        if (frame.type === 'history') setMessages(current => merge(current, frame.messages ?? []))
         else if (frame.type === 'message') setMessages(current => merge(current, [frame.message]))
         else if (frame.type === 'error') setError(frame.error)
         else if (frame.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }))
