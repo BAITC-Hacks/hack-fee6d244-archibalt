@@ -417,7 +417,10 @@ func TestFlow(t *testing.T) {
 		t.Fatalf("PUT fields должен мерджить и пересчитывать: score %d→%d, %+v", before, task.Score, task.Fields)
 	}
 
-	var login struct{ Token string }
+	var login struct {
+		Token string
+		Team  model.Team
+	}
 	c.do("POST", "/api/auth/verify", map[string]string{"contact": "bytes@example.com", "code": "000000", "team_name": "Байты"}, 200, &login)
 	tok := login.Token
 	c.doAuth(tok, "POST", path+"/proposals", map[string]any{"idea": "i", "plan": "p", "deadline": "d", "link": "https://x.kz"}, 400, nil) // не опубликована
@@ -454,8 +457,8 @@ func TestFlow(t *testing.T) {
 	c.doAuth(tok, "POST", ppath+"/accept", nil, 200, &prop)
 	c.do("POST", ppath+"/confirm-stage", nil, 200, &prop)
 	c.do("POST", ppath+"/confirm-stage", nil, 200, &prop) // идемпотентно
-	if !prop.StageConfirmed || repo.teams[1].Points != store.StagePoints {
-		t.Fatalf("confirm-stage: %+v, points %d", prop, repo.teams[1].Points)
+	if !prop.StageConfirmed || repo.teams[login.Team.ID].Points != store.StagePoints {
+		t.Fatalf("confirm-stage: %+v, points %d", prop, repo.teams[login.Team.ID].Points)
 	}
 	c.do("POST", "/api/proposals/77/reject", nil, 404, nil)
 

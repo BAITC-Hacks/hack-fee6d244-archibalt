@@ -225,21 +225,8 @@ func (s *server) teamForContact(r *http.Request, contact, teamName string) (mode
 	if !errors.Is(err, store.ErrNotFound) {
 		return t, false, err
 	}
-	if teamName != "" {
-		t, err := s.repo.GetTeamByName(ctx, teamName)
-		switch {
-		case err == nil && t.Contact == "":
-			switch err := s.repo.SetTeamContact(ctx, t.ID, contact); {
-			case err == nil:
-				t.Contact = contact
-				return t, false, nil
-			case !errors.Is(err, store.ErrNotFound): // ErrNotFound: контакт успел занять другой — создаём свою
-				return t, false, err
-			}
-		case err != nil && !errors.Is(err, store.ErrNotFound):
-			return t, false, err
-		}
-	}
+	// Привязка к существующей команде по имени убрана: иначе любой мог войти в чужую (seed) команду по имени и коду 000000.
+	// Незнакомый контакт всегда получает свою команду; team_name — только имя новой.
 	name := teamName
 	if name == "" {
 		name = "Команда " + contact

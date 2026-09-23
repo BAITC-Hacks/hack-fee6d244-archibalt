@@ -71,17 +71,16 @@ func TestAuth(t *testing.T) {
 		t.Fatalf("повторный verify должен вернуть ту же команду с новым токеном: %+v vs %+v", v2, v1)
 	}
 
-	// team_name = имя seed-команды без контакта → привязка
+	// team_name = имя seed-команды: чужую команду по имени перехватить нельзя — создаётся своя с этим именем
 	var v3 verifyResp
 	c.do("POST", "/api/auth/verify", map[string]string{"contact": "8 701 123 45 67", "code": "000000", "team_name": " байты "}, 200, &v3)
-	if v3.Created || v3.Team.ID != 1 || v3.Team.Contact != "+77011234567" || repo.teams[1].Contact != "+77011234567" {
-		t.Fatalf("привязка seed-команды: %+v", v3)
+	if !v3.Created || v3.Team.ID == 1 || v3.Team.Contact != "+77011234567" || repo.teams[1].Contact != "" {
+		t.Fatalf("вход в чужую команду по имени должен быть невозможен: %+v", v3)
 	}
-	// seed-команда уже с контактом: другой контакт с тем же именем создаёт новую команду
 	var v4 verifyResp
 	c.do("POST", "/api/auth/verify", map[string]string{"contact": "other@example.com", "code": "000000", "team_name": "Байты"}, 200, &v4)
-	if !v4.Created || v4.Team.ID == 1 || v4.Team.Name != "Байты" {
-		t.Fatalf("занятая seed-команда не должна перехватываться: %+v", v4)
+	if !v4.Created || v4.Team.ID == 1 || v4.Team.ID == v3.Team.ID || v4.Team.Name != "Байты" {
+		t.Fatalf("у каждого контакта своя команда: %+v", v4)
 	}
 
 	// /api/me
