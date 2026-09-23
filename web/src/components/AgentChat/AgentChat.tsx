@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, ty
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { ApiError, type Fields } from '../../api'
-import { capitalize, errorText, fieldSpecs, plural, ratingKey, saveDraft } from '../../fields'
+import { capitalize, errorText, fieldSpecs, plural, ratingKey, readDraft, saveDraft } from '../../fields'
 import { useSession } from '../../session'
 import { AnimatedNumber, Button, ConfirmDialog, LogoMark, Meter, Textarea, useToast } from '../../ui'
 import { cx } from '../../ui/cx'
@@ -126,6 +126,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
 
   // Старт: новый диалог по черновику или продолжение задачи. Ref защищает от двойного эффекта StrictMode.
   const started = useRef(false)
+  const [intro, setIntro] = useState(() => !('taskId' in start) && !start.draftText.trim())
   useEffect(() => {
     if (started.current) return
     started.current = true
@@ -136,16 +137,24 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
         push(...s.history.flatMap((q): NewMsg[] => [{ kind: 'question', q, state: q.answer ? 'answered' : 'skipped', picked: q.answer ? q.answer.split('; ') : [] }, q.answer ? { kind: 'user', text: q.answer } : { kind: 'user', text: 'Пропустить', skipped: true }]))
         await apply(s.first, t, { first: true })
       })
-    } else {
-      push({ kind: 'agent', text: `Понял: «${clip(start.draftText)}». Задам 3–5 вопросов.` })
-      void run(async t => {
-        const s = await transport.start(start, t); session.current = s
-        saveDraft('', ''); if (s.mode !== 'mock') void refreshBusiness(t)
-        await apply(s.first, t, { first: true })
-      })
-    }
+    } else if (intro) {
+      // Пустой черновик: сначала спрашиваем суть, задачу создаёт первое сообщение (см. submit).
+      push({ kind: 'agent', text: 'Расскажите своими словами: чем занимаетесь и что сейчас мешает?' })
+      setText(readDraft().text)
+      window.setTimeout(() => input.current?.focus({ preventScroll: true }), 0)
+    } else begin(start.draftText)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  function begin(draftText: string) {
+    if ('taskId' in start) return
+    push({ kind: 'agent', text: `Понял: «${clip(draftText)}». Задам 3–5 вопросов.` })
+    void run(async t => {
+      const s = await transport.start({ ...start, draftText }, t); session.current = s
+      saveDraft('', ''); if (s.mode !== 'mock') void refreshBusiness(t)
+      await apply(s.first, t, { first: true })
+    })
+  }
 
   function answer(value: string, picked?: string[]) {
     const q = active; const s = session.current
@@ -159,6 +168,12 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
 
   function submit(event?: FormEvent) {
     event?.preventDefault()
+    if (intro && !('taskId' in start)) {
+      const draftText = text.trim()
+      if (!draftText) { input.current?.focus(); return }
+      saveDraft(draftText, start.industry); setIntro(false); setText('')
+      push({ kind: 'user', text: draftText }); begin(draftText); return
+    }
     if (!active) return
     const typed = text.trim()
     if (active.q.input_type === 'multi') { const all = [...multi, ...(typed ? [typed] : [])]; if (all.length) answer(all.join('; '), multi); return }
@@ -303,7 +318,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
   }
 
   const skipGain = active ? gainOf(active.q) : undefined
-  const placeholder = !active ? (pending ? 'Агент думает…' : 'Вопросов сейчас нет') : active.q.input_type === 'multi' ? 'Своё, если нет в списке' : active.q.input_type === 'choice' || active.q.input_type === 'yes_no' ? 'Или ответьте своими словами' : 'Коротко, своими словами'
+  const placeholder = intro ? 'Например: языковой центр, заявки теряются в WhatsApp' : !active ? (pending ? 'Агент думает…' : 'Вопросов сейчас нет') : active.q.input_type === 'multi' ? 'Своё, если нет в списке' : active.q.input_type === 'choice' || active.q.input_type === 'yes_no' ? 'Или ответьте своими словами' : 'Коротко, своими словами'
   const filled = fieldSpecs.filter(spec => card[spec.key]?.trim()).length
 
   return createPortal(<div className="agent-overlay" onMouseDown={event => { if (event.target === event.currentTarget) requestClose() }}>
@@ -334,7 +349,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
                 Пропустить{skipGain ? <span className="agent-cost">−{skipGain} к готовности</span> : null}
               </Button>
               <span className="agent-keys" aria-hidden="true">Enter — отправить, Shift+Enter — новая строка</span>
-              <Button type="submit" variant="primary" size="sm" disabled={!active || (!text.trim() && !(active.q.input_type === 'multi' && multi.length))}>Отправить</Button>
+              <Button type="submit" variant="primary" size="sm" disabled={intro ? !text.trim() : !active || (!text.trim() && !(active.q.input_type === 'multi' && multi.length))}>Отправить</Button>
             </div>
           </form>
         </section>

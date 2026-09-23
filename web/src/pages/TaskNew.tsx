@@ -11,13 +11,12 @@ export const DRAFT_PLACEHOLDER = 'Языковой центр вырос из Ex
 /** Бэкенд требует непустую отрасль; до чата её не спрашиваем. */
 export const DEFAULT_INDUSTRY = 'Другое'
 
-/** Сразу открыть диалог с агентом по черновику. Без входа — сначала вход, затем диалог; черновик сохраняется до старта. */
+/** Сразу открыть диалог с агентом. Без входа — сначала вход, затем диалог. Пустой текст — агент сам спросит суть в чате. */
 export function useStartChat() {
   const { openAgentChat } = useAgentChat(); const { business, requestLogin } = useSession()
-  return (draft: string, industry = readDraft().industry) => {
+  return (draft = '', industry = readDraft().industry) => {
     const text = draft.trim()
-    if (!text) return
-    saveDraft(text, industry)
+    if (text) saveDraft(text, industry)
     const open = () => openAgentChat({ draftText: text, industry: industry.trim() || DEFAULT_INDUSTRY })
     if (!business) { requestLogin('business', open); return }
     open()

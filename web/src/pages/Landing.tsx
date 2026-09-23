@@ -1,16 +1,14 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { CatalogResponse } from '../api'
 import { AnimatedBackground } from '../components/AnimatedBackground'
 import { useExample } from '../components/BeforeAfter'
 import { ScrollStory } from '../components/ScrollStory'
 import { Reveal } from '../components/Reveal'
-import { capitalize, plural, readDraft, saveDraft, type Mode } from '../fields'
-import { ButtonLink, Textarea } from '../ui'
+import { capitalize, plural, type Mode } from '../fields'
+import { Button, ButtonLink } from '../ui'
 import { useLoad } from '../useLoad'
-import { DRAFT_PLACEHOLDER, useStartChat } from './TaskNew'
-
-const MIN_DRAFT = 10
+import { useStartChat } from './TaskNew'
 
 const COMPARE: { row: string; cells: [string, string, string, string] }[] = [
   { row: 'Уточняющие вопросы по пробелам', cells: ['Да, 3–4 по вашему тексту', 'Нет, одинаковые поля для всех', 'Да, но без структуры', 'Нет'] },
@@ -33,23 +31,13 @@ const FAQ = [
 /** Главная: одно поле для задачи, пример «до/после», как работает, сравнение, FAQ. */
 export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
   const startChat = useStartChat()
-  const [draft, setDraft] = useState(() => readDraft().text)
-  const ready = draft.trim().length >= MIN_DRAFT
   const { data: catalog } = useLoad<CatalogResponse>('/tasks', { tasks: [], industries: [], levels: [] })
   const example = useExample()
-  const first = useRef(true)
 
-  useEffect(() => {
-    if (first.current) { first.current = false; return }
-    const timer = window.setTimeout(() => saveDraft(draft, readDraft().industry), 400)
-    return () => window.clearTimeout(timer)
-  }, [draft])
-
-  function submit(event?: FormEvent) {
-    event?.preventDefault()
-    if (!ready) return
+  /** Чат открывается сразу, без текста: суть агент спросит первым сообщением (черновик подставится в поле). */
+  function discuss() {
     setMode('business')
-    startChat(draft)
+    startChat()
   }
 
   const rankNow = example.task?.rank || catalog.tasks.findIndex(task => task.id === 1) + 1 || undefined
@@ -66,14 +54,9 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
       <div className="landing-hero-copy">
         <h1>Сырой запрос → задача с оценкой <span className="nowrap">0–100</span>. <em>Команды выбирают сами.</em></h1>
         <p className="lead">AI задаёт 3–5 вопросов и собирает карточку только из ваших слов, ничего не додумывая, — каждую строку вы проверяете и подтверждаете сами. Оценка объясняет, что добавить, а задача попадает в открытый каталог, где студенческие команды откликаются сами.</p>
-        <form className="hero-input" onSubmit={submit}>
-          <Textarea aria-label="Опишите задачу своими словами" minRows={3} value={draft} onChange={event => setDraft(event.target.value)}
-            onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit() }} placeholder={DRAFT_PLACEHOLDER} />
-          <button type="submit" className={`ui-btn ui-btn-primary hero-send${ready ? ' is-ready' : ''}`} tabIndex={ready ? 0 : -1} aria-hidden={!ready}>Отправить →</button>
-        </form>
-        <p className="hero-micro">AI задаст 3–5 вопросов и соберёт карточку. Ничего не придумает.</p>
         <div className="hero-secondary">
-          <Link className="text-link" to="/catalog" onClick={() => setMode('team')}>Смотреть каталог задач</Link>
+          <Button variant="primary" size="lg" onClick={discuss}>Обсудить задачу</Button>
+          <ButtonLink variant="secondary" size="lg" to="/catalog" onClick={() => setMode('team')}>Найти задачу</ButtonLink>
         </div>
       </div>
       <div className="hero-visual">
