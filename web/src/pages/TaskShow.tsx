@@ -8,16 +8,19 @@ import { type Mode } from '../fields'
 import { useSession } from '../session'
 import { Alert, Button, ButtonLink, EmptyState, Field, Input, Loading, Spinner, Textarea, useToast } from '../ui'
 import { useLoad } from '../useLoad'
+import { useStartChat } from './TaskNew'
 import './TaskShow.css'
 
-export function TaskShow({ mode }: { mode: Mode }) {
+export function TaskShow({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) => void }) {
+  const student = mode === 'team'
+  const startChat = useStartChat()
   const { id } = useParams(); const { hash } = useLocation(); const toast = useToast(); const { data: task, setData: setTask, loading, error } = useLoad<Task>(`/tasks/${id}`, null as unknown as Task)
   const { data: teams } = useLoad<Team[]>('/teams', [])
   const { team, checking, requestLogin, explain, isOwner } = useSession()
   const [idea, setIdea] = useState(''); const [plan, setPlan] = useState(''); const [deadline, setDeadline] = useState(''); const [link, setLink] = useState(''); const [busy, setBusy] = useState(false); const [submitError, setSubmitError] = useState('')
   useEffect(() => {
     if (!loading && hash) document.getElementById(hash.slice(1))?.scrollIntoView({ block: 'start' })
-  }, [loading, hash, id])
+  }, [loading, hash, id, mode])
   async function refresh() { try { setTask(await api<Task>(`/tasks/${id}`)) } catch (err) { setSubmitError(explain(err, 'team')) } }
   async function send(token: string) {
     setBusy(true); setSubmitError('')
@@ -43,10 +46,10 @@ export function TaskShow({ mode }: { mode: Mode }) {
     <header className="task-intro">
       <div className="task-intro-meta"><span className="task-category">{task.industry || 'Бизнес-задача'}</span><span className={`task-availability${published ? ' is-published' : ''}`}>{published ? 'Принимает предложения' : 'Ещё не опубликована'}</span>{owner && <span className="task-owned">Ваша задача</span>}</div>
       <h1>{task.fields.title || 'Задача без названия'}</h1>
-      <p>Изучите задачу и предложите, как ваша команда её решит. Решение о сотрудничестве принимает бизнес.</p>
+      <p>{owner ? 'Управляйте описанием и сравнивайте предложения команд. Вы решаете, с кем работать.' : student ? 'Изучите задачу и предложите, как ваша команда её решит. Решение о сотрудничестве принимает бизнес.' : 'Посмотрите, как описаны результат и условия проекта. AI поможет подготовить вашу собственную задачу.'}</p>
     </header>
     {mine && <Alert tone="success" className="task-selected" title="Бизнес выбрал вашу команду">Подтвердите участие или откажитесь в своём отклике. <a href="#proposals">Перейти к откликам →</a></Alert>}
-    <nav className="task-section-nav" aria-label="Разделы задачи"><a href="#brief">Что сделать</a><a href="#resources">Данные и условия</a><a href="#proposals">Отклики <span>{count}</span></a>{!owner && published && <a className="task-nav-cta" href="#respond">Хочу выполнить <span aria-hidden="true">↗</span></a>}</nav>
+    <nav className="task-section-nav" aria-label="Разделы задачи"><a href="#brief">Что сделать</a><a href="#resources">Данные и условия</a><a href="#proposals">Отклики <span>{count}</span></a>{!owner && student && published && <a className="task-nav-cta" href="#respond">Хочу выполнить <span aria-hidden="true">↗</span></a>}</nav>
     <div className="task-workspace">
       <div className="task-content">
         {task.has_visual && <figure className="task-panel task-visual" style={{ margin: 0 }}>
@@ -75,10 +78,10 @@ export function TaskShow({ mode }: { mode: Mode }) {
         </section>
         <section className="task-panel task-proposals" id="proposals">
           <div className="task-panel-heading"><span className="task-section-number">04</span><h2>Предложения команд <span className="task-count">{count}</span></h2></div>
-          <p className="task-panel-note">{owner ? 'Сравните идеи и планы. Вы сами решаете, с кем продолжить работу.' : 'Посмотрите, что предлагают другие. Вы тоже можете откликнуться, даже если бизнес уже выбрал команду.'}</p>
-          {task.proposals?.length ? <ProposalTable proposals={task.proposals} teams={teams} canDecide={owner && mode === 'business'} update={() => void refresh()} /> : <EmptyState slim title="Станьте первой командой">Здесь появятся идеи и планы тех, кто хочет решить задачу.</EmptyState>}
+          <p className="task-panel-note">{owner ? 'Сравните идеи и планы. Вы сами решаете, с кем продолжить работу.' : student ? 'Посмотрите, что предлагают другие. Вы тоже можете откликнуться, даже если бизнес уже выбрал команду.' : 'Идеи и планы команд открыты для просмотра. Выбрать исполнителя может только владелец задачи.'}</p>
+          {task.proposals?.length ? <ProposalTable proposals={task.proposals} teams={teams} canDecide={owner && mode === 'business'} update={() => void refresh()} /> : <EmptyState slim title={student && !owner ? 'Станьте первой командой' : 'Откликов пока нет'}>Здесь появятся идеи и планы тех, кто хочет решить задачу.</EmptyState>}
         </section>
-        {!owner && <section className="task-panel task-response" id="respond">
+        {!owner && student && <section className="task-panel task-response" id="respond">
           <div className="task-panel-heading"><span className="task-section-number">05</span><h2>Откликнуться на задачу</h2></div>
           <p className="task-panel-note">Расскажите, как решите задачу. Готовый продукт для отклика не нужен.</p>
           {!published ? <Alert>Отклики станут доступны после публикации задачи.</Alert> : <>
@@ -99,11 +102,11 @@ export function TaskShow({ mode }: { mode: Mode }) {
       </div>
       <aside className="task-sidebar">
         <section className="task-action-panel">
-          <p className="task-small-label">{owner ? 'УПРАВЛЕНИЕ ЗАДАЧЕЙ' : 'ОТ ИДЕИ К ПЕРВОМУ ПРОЕКТУ'}</p>
-          <h2>{owner ? 'Найдите свою команду' : 'Хотите взяться?'}</h2>
-          <p>{owner ? 'Полное описание помогает командам предложить подходящее решение.' : 'Предложите свой подход. Чтобы откликнуться, достаточно идеи, плана, срока и ссылки на материалы.'}</p>
-          {owner ? <><ButtonLink variant="primary" block to={`/task/${id}/edit`}>Дополнить задачу</ButtonLink><a className="task-secondary-action" href="#proposals">Посмотреть отклики ({count}) →</a></> : published ? <a className="ui-btn ui-btn-primary ui-btn-block" href="#respond">Хочу выполнить задачу <span aria-hidden="true">↗</span></a> : <Alert>Задача ещё не опубликована</Alert>}
-          <ol className="task-start-steps"><li><span>1</span><div><strong>Предложите решение</strong><small>Опишите идею и план в отклике</small></div></li><li><span>2</span><div><strong>Дождитесь выбора бизнеса</strong><small>Бизнес сравнит предложения команд</small></div></li><li><span>3</span><div><strong>Подтвердите участие</strong><small>После выбора примите проект в своём отклике</small></div></li></ol>
+          <p className="task-small-label">{owner ? 'УПРАВЛЕНИЕ ЗАДАЧЕЙ' : student ? 'ОТ ИДЕИ К ПЕРВОМУ ПРОЕКТУ' : 'ДЛЯ ВАШЕГО БИЗНЕСА'}</p>
+          <h2>{owner ? 'Найдите свою команду' : student ? 'Хотите взяться?' : 'Есть похожая задача?'}</h2>
+          <p>{owner ? 'Полное описание помогает командам предложить подходящее решение.' : student ? 'Предложите свой подход. Чтобы откликнуться, достаточно идеи, плана, срока и ссылки на материалы.' : 'Расскажите о своей проблеме. AI поможет подготовить описание для студенческих команд.'}</p>
+          {owner ? <><ButtonLink variant="primary" block to={`/task/${id}/edit`}>Дополнить задачу</ButtonLink><a className="task-secondary-action" href="#proposals">Посмотреть отклики ({count}) →</a></> : !student ? <><Button variant="primary" block aria-haspopup="dialog" onClick={() => startChat()}>Обсудить свою задачу</Button><Button variant="ghost" block onClick={() => setMode('team')}>Я хочу выполнить этот проект</Button></> : published ? <a className="ui-btn ui-btn-primary ui-btn-block" href="#respond">Хочу выполнить задачу <span aria-hidden="true">↗</span></a> : <Alert>Задача ещё не опубликована</Alert>}
+          {student && !owner && <ol className="task-start-steps"><li><span>1</span><div><strong>Предложите решение</strong><small>Опишите идею и план в отклике</small></div></li><li><span>2</span><div><strong>Дождитесь выбора бизнеса</strong><small>Бизнес сравнит предложения команд</small></div></li><li><span>3</span><div><strong>Подтвердите участие</strong><small>После выбора примите проект в своём отклике</small></div></li></ol>}
         </section>
         <div className="task-readiness-summary"><div><span>Полнота описания</span><strong>{task.score}<small> / 100</small></strong></div><p>Баллы показывают, сколько бизнес рассказал о проекте. Откликнуться можно с любым рейтингом.</p>
           <details className="task-rating-details"><summary>Что заполнено и чего не хватает</summary><RatingPanel task={task} /></details>

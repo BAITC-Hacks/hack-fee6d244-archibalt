@@ -22,15 +22,15 @@ export default function App() {
     <ScrollToTop />
     <Layout mode={mode} setMode={setMode}>
       <Routes>
-        <Route path="/" element={<Landing setMode={setMode} />} />
+        <Route path="/" element={<Landing mode={mode} setMode={setMode} />} />
         <Route path="/catalog" element={<Catalog mode={mode} setMode={setMode} />} />
         <Route path="/task/new" element={<TaskNew />} />
         <Route path="/task/:id/clarify" element={<Clarify />} />
         <Route path="/task/:id/edit" element={<TaskEdit />} />
-        <Route path="/task/:id" element={<TaskShow mode={mode} />} />
+        <Route path="/task/:id" element={<TaskShow mode={mode} setMode={setMode} />} />
         <Route path="/business" element={<MyTasks />} />
         <Route path="/ai" element={<AiPage />} />
-        <Route path="/teams" element={<Teams />} />
+        <Route path="/teams" element={<Teams mode={mode} setMode={setMode} />} />
         <Route path="*" element={<PageError message="Такой страницы нет. Проверьте адрес или откройте каталог." />} />
       </Routes>
     </Layout>

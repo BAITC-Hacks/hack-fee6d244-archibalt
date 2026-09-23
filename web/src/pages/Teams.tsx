@@ -1,7 +1,7 @@
 import { useSearchParams } from 'react-router-dom'
 import { PageError } from '../components/PageState'
 import type { Team } from '../api'
-import { capitalize, plural } from '../fields'
+import { capitalize, plural, type Mode } from '../fields'
 import { Button, ButtonLink, EmptyState, Input, Loading, Select } from '../ui'
 import { CloseIcon } from '../ui/icons'
 import { useLoad } from '../useLoad'
@@ -9,8 +9,10 @@ import { useStartChat } from './TaskNew'
 import { selectTeams } from './teams-model'
 import './Teams.css'
 
-export function Teams() {
+export function Teams({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) => void }) {
+  const student = mode === 'team'
   const startChat = useStartChat()
+  const discuss = () => { setMode('business'); startChat() }
   const { data, loading, error } = useLoad<Team[]>('/teams', [])
   const [params, setParams] = useSearchParams()
   const search = params.get('q') || '', interest = params.get('interest') || '', sort = params.get('sort') === 'name' ? 'name' : ''
@@ -30,14 +32,14 @@ export function Teams() {
     <header className="teams-intro">
       <div>
         <p className="teams-kicker">СООБЩЕСТВО ARCHIBALT</p>
-        <h1>Команды для<br /><em>реальных задач.</em></h1>
-        <p className="teams-description">Знакомьтесь с участниками: что умеют, чем интересуются и какие технологии используют.</p>
+        <h1>{student ? <>Сообщество<br /><em>студенческих команд.</em></> : <>Команды для<br /><em>вашей задачи.</em></>}</h1>
+        <p className="teams-description">{student ? 'Знакомьтесь с участниками: что умеют, чем интересуются и какие технологии используют.' : 'Изучите навыки и опыт команд. Опубликуйте задачу, чтобы получить предложения и выбрать исполнителей.'}</p>
       </div>
       <aside className="teams-start">
-        <span className="teams-start-label">ОТ НАВЫКОВ К ПРАКТИКЕ</span>
-        <h2>Ваша команда тоже может начать</h2>
-        <p>Выберите задачу бизнеса и предложите своё решение. Первый проект начинается с отклика.</p>
-        <ButtonLink to="/catalog" variant="primary">Найти задачу <span aria-hidden="true">→</span></ButtonLink>
+        <span className="teams-start-label">{student ? 'ОТ НАВЫКОВ К ПРАКТИКЕ' : 'ОТ ЗАДАЧИ К КОМАНДЕ'}</span>
+        <h2>{student ? 'Ваша команда тоже может начать' : 'Расскажите, что нужно сделать'}</h2>
+        <p>{student ? 'Выберите задачу бизнеса и предложите своё решение. Первый проект начинается с отклика.' : 'AI поможет составить ТЗ. Команды предложат свои идеи, а вы решите, с кем работать.'}</p>
+        {student ? <ButtonLink to="/catalog" variant="primary">Найти проект <span aria-hidden="true">→</span></ButtonLink> : <Button variant="primary" aria-haspopup="dialog" onClick={discuss}>Обсудить задачу <span aria-hidden="true">→</span></Button>}
       </aside>
     </header>
 
@@ -83,7 +85,7 @@ export function Teams() {
 
     <div className="teams-bottom-notes">
       <section className="teams-progress-note"><span className="teams-points-mark">+10</span><div><h2>За реальный прогресс</h2><p>Команда получает 10 баллов, когда бизнес подтверждает этап работы. Начать можно и с нуля баллов.</p></div></section>
-      <section className="teams-business-note"><h2>Ищете исполнителей?</h2><p>Опубликуйте задачу, дождитесь откликов и выберите команду по её предложению.</p><Button variant="ghost" aria-haspopup="dialog" onClick={() => startChat()}>Описать задачу <span aria-hidden="true">→</span></Button></section>
+      <section className="teams-business-note"><h2>{student ? 'Готовы показать свои навыки?' : 'Ищете исполнителей?'}</h2><p>{student ? 'Выберите проект по интересам и отправьте отклик от своей команды.' : 'Опубликуйте задачу, дождитесь откликов и выберите команду по её предложению.'}</p>{student ? <ButtonLink to="/catalog" variant="ghost">Найти проект <span aria-hidden="true">→</span></ButtonLink> : <Button variant="ghost" aria-haspopup="dialog" onClick={discuss}>Описать задачу <span aria-hidden="true">→</span></Button>}</section>
     </div>
   </section>
 }

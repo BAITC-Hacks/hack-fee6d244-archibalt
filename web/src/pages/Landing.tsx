@@ -23,8 +23,23 @@ const FAQ = [
   { q: 'Когда понадобится вход?', a: 'При сборке карточки и публикации задачи. Так вы сможете вернуться к ней и увидеть отклики.' },
 ]
 
+const TEAM_STEPS = [
+  { title: 'Найдите проект', text: 'Выберите направление и изучите задачу, данные и ожидаемый результат.' },
+  { title: 'Предложите решение', text: 'Опишите идею, план и срок. Для отправки войдите от имени команды.' },
+  { title: 'Согласуйте участие', text: 'Бизнес выберет команду. Подтвердите, что готовы взяться за проект.' },
+  { title: 'Покажите результат', text: 'Выполните этап и получите баллы после подтверждения бизнеса.' },
+]
+
+const TEAM_FAQ = [
+  { q: 'Можно сначала посмотреть задачи без входа?', a: 'Да. Каталог, условия и отклики открыты. Вход от имени команды понадобится при отправке своего предложения.' },
+  { q: 'Нужно уже иметь готовое решение?', a: 'Нет. Для отклика нужны идея, план, срок выполнения и ссылка на материалы: например, документ с вашим подходом.' },
+  { q: 'Можно откликнуться с нулём баллов?', a: 'Да. Баллы команды не ограничивают участие. Бизнес сам сравнивает предложения и выбирает исполнителей.' },
+  { q: 'Что означает рейтинг задачи?', a: 'Балл от 0 до 100 показывает полноту описания, а не сложность проекта. Откликнуться можно на любую опубликованную задачу.' },
+]
+
 /** Главная: hero, четыре шага, готовность задачи с примером «было/стало», FAQ и CTA. */
-export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
+export function Landing({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) => void }) {
+  const student = mode === 'team'
   const startChat = useStartChat()
   const { data: catalog } = useLoad<CatalogResponse>('/tasks', { tasks: [], industries: [], levels: [] })
   const example = useExample()
@@ -47,16 +62,21 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
       <AnimatedBackground />
       <div className="container landing-hero-grid">
       <div className="landing-hero-copy">
-        <h1>От проблемы бизнеса — <em>к решению со студенческой командой.</em></h1>
-        <p className="lead">AI поможет разобраться в задаче и составить понятное ТЗ. Студенческие команды смогут предложить решения, а вы выберете, с кем работать.</p>
+        <p className="eyebrow">{student ? 'Для студентов и команд' : 'Для бизнеса'}</p>
+        <h1>{student ? <>Ваши навыки — <em>в реальном проекте.</em></> : <>От проблемы бизнеса — <em>к решению со студенческой командой.</em></>}</h1>
+        <p className="lead">{student ? 'Найдите задачу по интересам, предложите свой подход и создайте полезный продукт вместе с бизнесом. Начать можно с идеи и команды.' : 'AI поможет разобраться в задаче и составить понятное ТЗ. Студенческие команды смогут предложить решения, а вы выберете, с кем работать.'}</p>
         <div className="hero-secondary">
-          <Button variant="primary" size="lg" onClick={discuss}>Обсудить задачу</Button>
-          <ButtonLink variant="secondary" size="lg" to="/catalog" onClick={() => setMode('team')}>Найти задачу</ButtonLink>
+          {student ? <ButtonLink variant="primary" size="lg" to="/catalog">Найти проект</ButtonLink> : <Button variant="primary" size="lg" onClick={discuss}>Обсудить задачу</Button>}
+          <ButtonLink variant="secondary" size="lg" to="/teams">{student ? 'Посмотреть команды' : 'Найти команду'}</ButtonLink>
         </div>
-        <p className="hero-micro">Можно начать без готового ТЗ.</p>
+        <p className="hero-micro">{student ? 'Каталог открыт без регистрации. Вход — при отправке отклика.' : 'Можно начать без готового ТЗ.'}</p>
       </div>
       <div className="hero-visual">
-        <div className="hero-score glass">
+        {student ? <div className="hero-score glass">
+          <p className="eyebrow">Практика с понятным результатом</p>
+          <h2>От идеи —<br />к первому проекту</h2>
+          <ul className="landing-notes"><li>Реальные задачи и данные бизнеса.</li><li>Ваш подход, план и срок в отклике.</li><li>Баллы за подтверждённые этапы работы.</li></ul>
+        </div> : <div className="hero-score glass">
           <HeroRing from={example.score} to={example.after} />
           <dl className="hero-ba">
             <div><dt>Было {example.score}</dt><dd>не указаны {gaps}</dd></div>
@@ -65,9 +85,9 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
           <p className="hero-score-note">пример: {example.title.toLowerCase()}</p>
           <span className="metric-chip glass chip-a"><strong>{example.score} → {example.after}</strong> готовность</span>
           {rankNow ? <span className="metric-chip glass chip-b"><strong>#{rankNow} → #{rankAfter}</strong> место после ответов</span> : null}
-        </div>
+        </div>}
         {top.length > 0 && <div className="hero-catalog glass">
-          <p className="hero-catalog-head"><span>Открытый каталог</span><Link to="/catalog">Все задачи →</Link></p>
+          <p className="hero-catalog-head"><span>{student ? 'Проекты для вашей команды' : 'Открытый каталог'}</span><Link to="/catalog">Все задачи →</Link></p>
           <ol>{top.map(task => <li key={task.id}>
             <strong className={`hero-catalog-score score-${task.level}`}>{task.score}</strong>
             <Link to={`/task/${task.id}`}>{capitalize(task.fields.title.replace(/^Демо:\s*/, ''))}</Link>
@@ -79,22 +99,22 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
 
     <Reveal className="container landing-section" id="how">
       <p className="eyebrow">Как это работает</p>
-      <h2>От разговора — к выбору команды</h2>
-      <ol className="landing-steps">{STEPS.map((step, index) => <li key={step.title}><span className="landing-step-num">{index + 1}</span><h3>{step.title}</h3><p>{step.text}</p></li>)}</ol>
+      <h2>{student ? 'От отклика — к результату' : 'От разговора — к выбору команды'}</h2>
+      <ol className="landing-steps">{(student ? TEAM_STEPS : STEPS).map((step, index) => <li key={step.title}><span className="landing-step-num">{index + 1}</span><h3>{step.title}</h3><p>{step.text}</p></li>)}</ol>
     </Reveal>
 
     <Reveal className="container landing-section landing-readiness">
       <div className="landing-readiness-copy">
         <p className="eyebrow">Рейтинг готовности</p>
-        <h2>Понятно, чего не хватает до старта</h2>
-        <p className="lead">Рейтинг 0–100 показывает готовность задачи. Дополняйте сведения и подтверждайте изменения: балл пересчитается, а позиция в каталоге обновится.</p>
+        <h2>{student ? 'Выбирайте с пониманием задачи' : 'Понятно, чего не хватает до старта'}</h2>
+        <p className="lead">{student ? 'Рейтинг 0–100 показывает полноту описания, а не сложность проекта. Изучите результат, данные и критерии приёмки. Если деталей мало, предложите свой подход и уточните условия с бизнесом.' : 'Рейтинг 0–100 показывает готовность задачи. Дополняйте сведения и подтверждайте изменения: балл пересчитается, а позиция в каталоге обновится.'}</p>
         <ul className="landing-notes">
           <li>Откликаться можно на задачи с любым рейтингом.</li>
           <li>Команды получают баллы за этапы, подтверждённые бизнесом.</li>
         </ul>
       </div>
       <div className="landing-readiness-example">
-        <p className="eyebrow">Пример улучшения задачи</p>
+        <p className="eyebrow">{student ? 'Какие детали помогают выбрать проект' : 'Пример улучшения задачи'}</p>
         <BeforeAfter example={example} />
       </div>
     </Reveal>
@@ -102,16 +122,16 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
     <Reveal className="container landing-section landing-faq" id="faq">
       <p className="eyebrow">Вопросы</p>
       <h2>Коротко о главном</h2>
-      <div className="faq">{FAQ.map(item => <details key={item.q}><summary>{item.q}</summary><p>{item.a}</p></details>)}</div>
+      <div className="faq">{(student ? TEAM_FAQ : FAQ).map(item => <details key={item.q}><summary>{item.q}</summary><p>{item.a}</p></details>)}</div>
     </Reveal>
 
     <Reveal className="container landing-section">
       <div className="final-cta">
         <AnimatedBackground intensity="soft" />
-        <div><h2>Начнём с вашей задачи</h2></div>
+        <div><h2>{student ? 'Найдите свой первый проект' : 'Начнём с вашей задачи'}</h2></div>
         <div className="final-cta-actions">
-          <Button variant="primary" size="lg" onClick={discuss}>Обсудить задачу</Button>
-          <ButtonLink variant="secondary" size="lg" to="/catalog" onClick={() => setMode('team')}>Найти задачу</ButtonLink>
+          {student ? <ButtonLink variant="primary" size="lg" to="/catalog">Найти проект</ButtonLink> : <Button variant="primary" size="lg" onClick={discuss}>Обсудить задачу</Button>}
+          <ButtonLink variant="secondary" size="lg" to="/teams">{student ? 'Посмотреть команды' : 'Найти команду'}</ButtonLink>
         </div>
       </div>
     </Reveal>

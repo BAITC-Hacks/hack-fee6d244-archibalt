@@ -15,6 +15,7 @@ const RANGES = { priority: '90–100', ready: '70–89', working: '40–69', dra
 const SORTS = [{ value: '', label: 'По готовности' }, { value: 'newest', label: 'Сначала новые' }, { value: 'proposals', label: 'Меньше откликов' }]
 
 export function Catalog({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) => void }) {
+  const student = mode === 'team'
   const startChat = useStartChat()
   const [params, setParams] = useSearchParams()
   const [filtersOpen, setFiltersOpen] = useState(() => window.matchMedia('(min-width: 801px)').matches)
@@ -31,7 +32,7 @@ export function Catalog({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) =
   const reset = () => setParams(sort ? { sort } : {}, { replace: true, preventScrollReset: true })
   return <section className="container project-catalog">
     <header className="catalog-intro">
-      <div><p className="catalog-kicker"><span /> КАТАЛОГ БИЗНЕС-ЗАДАЧ</p><h1>Ваш следующий<br /><em>реальный проект.</em></h1><p className="catalog-description">Найдите задачу по интересам, предложите решение<br className="catalog-desktop-break" /> и создайте полезный продукт вместе с бизнесом.</p></div>
+      <div><p className="catalog-kicker"><span /> {student ? 'ПРОЕКТЫ ДЛЯ СТУДЕНТОВ' : 'КАТАЛОГ БИЗНЕС-ЗАДАЧ'}</p><h1>{student ? <>Ваш следующий<br /><em>реальный проект.</em></> : <>Задачи бизнеса.<br /><em>Решения команд.</em></>}</h1><p className="catalog-description">{student ? 'Найдите задачу по интересам, предложите решение и создайте полезный продукт вместе с бизнесом.' : 'Посмотрите, как другие описывают задачи, или обсудите свою с AI и получите предложения команд.'}</p></div>
       <div className="catalog-overview" aria-label="Статистика каталога">
         <div><strong>{loading || error ? '—' : data.tasks.length}</strong><span>задач в каталоге</span></div>
         <div><strong>{loading || error ? '—' : data.tasks.filter(task => task.score >= 70).length}</strong><span>с готовностью 70+</span></div>
@@ -40,7 +41,7 @@ export function Catalog({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) =
     </header>
     <div className="catalog-searchbar" role="search">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
-      <Input type="search" aria-label="Поиск задач" placeholder="Что вам интересно? Например, доставка или образование" value={search} onChange={event => apply('q', event.target.value)} />
+      <Input type="search" aria-label="Поиск задач" placeholder={student ? 'Что вам интересно? Например, доставка или образование' : 'Найдите похожую задачу: например, доставка или образование'} value={search} onChange={event => apply('q', event.target.value)} />
       {search && <Button variant="ghost" aria-label="Очистить поиск" onClick={() => apply('q', '')}><CloseIcon /></Button>}
       <span className="catalog-search-hint">Поиск по задачам</span>
     </div>
@@ -59,8 +60,8 @@ export function Catalog({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) =
             {filtered && <Button variant="ghost" className="catalog-reset" onClick={reset}>Сбросить фильтры</Button>}
           </div>
         </details>
-        <div className="catalog-guide"><span className="catalog-guide-mark" aria-hidden="true">↗</span><h2>Что значит рейтинг?</h2><p>Чем больше бизнес рассказал о задаче, тем выше её балл и место в каталоге.</p><strong>Откликнуться можно на любую задачу — даже с низким баллом.</strong></div>
-        <button type="button" className="catalog-business-link" style={{ border: 0, background: 'transparent', padding: 0, textAlign: 'left' }} aria-haspopup="dialog" onClick={() => { setMode('business'); startChat() }}>Есть задача для команды?<span>Опубликовать задачу →</span></button>
+        <div className="catalog-guide"><span className="catalog-guide-mark" aria-hidden="true">↗</span><h2>{student ? 'Как выбрать проект?' : 'Как поднять готовность?'}</h2><p>{student ? 'Проверьте результат, доступные данные и сроки. Балл показывает полноту описания, а не сложность.' : 'Дополните данные, ожидаемый результат и критерии успеха. После подтверждения балл и место обновятся.'}</p><strong>{student ? 'Откликнуться можно на любую задачу — даже с низким баллом.' : 'Все опубликованные задачи доступны командам. Исполнителя выбираете вы.'}</strong></div>
+        {student ? <Link className="catalog-business-link" to="/teams">Знакомьтесь с участниками<span>Посмотреть команды →</span></Link> : <button type="button" className="catalog-business-link" style={{ border: 0, background: 'transparent', padding: 0, textAlign: 'left' }} aria-haspopup="dialog" onClick={() => { setMode('business'); startChat() }}>Есть задача для команды?<span>Опубликовать задачу →</span></button>}
       </aside>
       <div className="catalog-main">
         <div className="catalog-toolbar"><h2 role="status" aria-live="polite">{loading ? 'Загружаем задачи…' : error ? 'Каталог недоступен' : <>{filtered ? 'Найдено' : 'Все задачи'} <span>{tasks.length}</span></>}</h2><Select aria-label="Сортировка задач" value={SORTS.some(item => item.value === sort) ? sort : ''} options={SORTS} onChange={value => apply('sort', value)} /></div>
@@ -74,7 +75,7 @@ export function Catalog({ mode, setMode }: { mode: Mode; setMode: (mode: Mode) =
           {error ? <Alert tone="error">Не удалось загрузить каталог. <button className="catalog-retry" onClick={() => window.location.reload()}>Попробовать ещё раз</button></Alert>
             : loading ? <div className="project-grid" aria-hidden="true">{[0, 1, 2, 3].map(n => <div className="project-skeleton" key={n}><span /><span /><span /><span /></div>)}</div>
             : tasks.length ? <div className="project-grid">{tasks.map(task => <TaskCard key={task.id} task={task} respond={mode === 'team' && !isOwner(task.id)} />)}</div>
-            : <EmptyState title={filtered ? 'Пока нет подходящих задач' : 'Здесь появятся первые проекты'} action={filtered ? <Button onClick={reset}>Показать все задачи</Button> : <Button variant="primary" aria-haspopup="dialog" onClick={() => { setMode('business'); startChat() }}>Обсудить задачу</Button>}>{filtered ? 'Попробуйте другой запрос или уберите часть фильтров.' : 'Опишите бизнес-задачу, чтобы команды могли предложить решение.'}</EmptyState>}
+            : <EmptyState title={filtered ? 'Пока нет подходящих задач' : 'Здесь появятся первые проекты'} action={filtered ? <Button onClick={reset}>Показать все задачи</Button> : student ? <ButtonLink to="/teams">Посмотреть команды</ButtonLink> : <Button variant="primary" aria-haspopup="dialog" onClick={() => { setMode('business'); startChat() }}>Обсудить задачу</Button>}>{filtered ? 'Попробуйте другой запрос или уберите часть фильтров.' : student ? 'Бизнес ещё не опубликовал задачи. Пока можно познакомиться с командами платформы.' : 'Опишите бизнес-задачу, чтобы команды могли предложить решение.'}</EmptyState>}
         </div>
         {!loading && !error && tasks.length > 0 && <p className="catalog-end">{tasks.length} {plural(tasks.length, 'задача', 'задачи', 'задач')}{filtered ? ` из ${data.tasks.length}` : ' в каталоге'}. {filtered && <button onClick={reset}>Показать все</button>}</p>}
       </div>
