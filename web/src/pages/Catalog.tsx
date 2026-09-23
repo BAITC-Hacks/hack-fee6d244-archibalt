@@ -1,15 +1,14 @@
 import { Link, useSearchParams } from 'react-router-dom'
 import type { CatalogResponse } from '../api'
-import { PageError } from '../components/PageState'
 import { capitalize, type Mode } from '../fields'
-import { Badge, Button, ButtonLink, EmptyState, Field, Loading, Select, levelLabels, type LevelKind } from '../ui'
+import { Alert, Badge, Button, ButtonLink, EmptyState, Field, Select, Spinner, levelLabels, type LevelKind } from '../ui'
 import { useLoad } from '../useLoad'
 
 export function Catalog({ setMode }: { setMode: (mode: Mode) => void }) {
   const [params, setParams] = useSearchParams()
   const industry = params.get('industry') || ''; const level = params.get('level') || ''
   const query = new URLSearchParams(); if (industry) query.set('industry', industry); if (level) query.set('level', level)
-  const { data, loading, error } = useLoad<CatalogResponse>(`/tasks${query.size ? `?${query}` : ''}`, { tasks: [], industries: [], levels: [] })
+  const { data, loading, refreshing, error } = useLoad<CatalogResponse>(`/tasks${query.size ? `?${query}` : ''}`, { tasks: [], industries: [], levels: [] }, { keepPrevious: true })
   const apply = (next: { industry: string; level: string }) => setParams({ ...(next.industry ? { industry: next.industry } : {}), ...(next.level ? { level: next.level } : {}) })
   const industryOptions = [{ value: '', label: 'Все темы' }, ...data.industries.map(value => ({ value, label: value }))]
   const levelOptions = [{ value: '', label: 'Любая' }, ...data.levels.map(item => ({ value: item.key, label: capitalize(levelLabels[item.key as LevelKind] ?? item.label) }))]
@@ -41,15 +40,21 @@ export function Catalog({ setMode }: { setMode: (mode: Mode) => void }) {
         <Field label="Готовность"><Select value={level} options={levelOptions} onChange={value => apply({ industry, level: value })} /></Field>
         {(industry || level) && <Button variant="ghost" onClick={() => setParams({})}>Сбросить фильтры</Button>}
       </div>
-      {loading ? <Loading /> : error ? <PageError message={error} /> : data.tasks.length ? <div className="task-list">{data.tasks.map((task, index) => <article className="task-row" key={task.id}>
-        <div className={`score-tile score-${task.level}`}><strong>{task.score}</strong><span>из 100</span></div>
-        <div className="task-summary">
-          <div className="task-meta"><span>Место в списке #{index + 1}</span><span>{task.industry || 'Без темы'}</span><Badge kind={task.level} /></div>
-          <h3><Link to={`/task/${task.id}`}>{task.fields.title || 'Задача без названия'}</Link></h3>
-          <p>{task.fields.need || task.draft_text}</p>
-          <div className="task-row-footer"><span>Рейтинг выше — позиция выше</span><Link to={`/task/${task.id}`}>Открыть задачу →</Link></div>
-        </div>
-      </article>)}</div> : <EmptyState title="Задач по этим фильтрам нет" action={<Button onClick={() => setParams({})}>Показать все задачи</Button>}>Попробуйте другую тему или уровень готовности.</EmptyState>}
+      <div className={`catalog-results${refreshing ? ' is-refreshing' : ''}`} aria-busy={loading || refreshing}>
+        {refreshing && <span className="catalog-refresh" role="status"><Spinner size="sm" /> Обновляем список…</span>}
+        {error && <Alert tone="error" className="catalog-error">{error}</Alert>}
+        {loading ? <div className="task-list" aria-hidden="true">{[0, 1, 2].map(n => <div className="task-row task-skeleton" key={n}><div className="score-tile" /><div className="task-summary"><span /><span /><span /></div></div>)}</div>
+          : data.tasks.length ? <div className="task-list">{data.tasks.map((task, index) => <article className="task-row" key={task.id}>
+            <div className={`score-tile score-${task.level}`}><strong>{task.score}</strong><span>из 100</span></div>
+            <div className="task-summary">
+              <div className="task-meta"><span>Место в списке #{index + 1}</span><span>{task.industry || 'Без темы'}</span><Badge kind={task.level} /></div>
+              <h3><Link to={`/task/${task.id}`}>{task.fields.title || 'Задача без названия'}</Link></h3>
+              <p>{task.fields.need || task.draft_text}</p>
+              <div className="task-row-footer"><span>Рейтинг выше — позиция выше</span><Link to={`/task/${task.id}`}>Открыть задачу →</Link></div>
+            </div>
+          </article>)}</div>
+          : !error && <EmptyState title="Задач по этим фильтрам нет" action={<Button onClick={() => setParams({})}>Показать все задачи</Button>}>Попробуйте другую тему или уровень готовности.</EmptyState>}
+      </div>
     </section>
   </>
 }

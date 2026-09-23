@@ -11,7 +11,7 @@ import { useLoad } from '../useLoad'
 
 export function TaskShow({ mode }: { mode: Mode }) {
   const { id } = useParams(); const toast = useToast(); const { data: task, setData: setTask, loading, error } = useLoad<Task>(`/tasks/${id}`, null as unknown as Task)
-  const { session, checking, requestLogin, logout, expire } = useTeamSession()
+  const { session, checking, requestLogin, expire } = useTeamSession()
   const [idea, setIdea] = useState(''); const [plan, setPlan] = useState(''); const [deadline, setDeadline] = useState(''); const [link, setLink] = useState(''); const [busy, setBusy] = useState(false); const [submitError, setSubmitError] = useState('')
   async function refresh() { try { setTask(await api<Task>(`/tasks/${id}`)) } catch (err) { setSubmitError(errorText(err)) } }
   async function send(current: TeamSession) {
@@ -56,7 +56,7 @@ export function TaskShow({ mode }: { mode: Mode }) {
           <p className="eyebrow">Для студенческих команд</p>
           <h2>Предложить решение</h2>
           {checking ? <p className="respond-who"><Spinner size="sm" /> Проверяем вход команды…</p>
-            : session ? <p className="respond-who">Вы вошли как <strong>{session.team.name}</strong>. <Button variant="ghost" size="sm" onClick={() => void logout()}>Выйти</Button></p>
+            : session ? <p className="respond-who">Предложение уйдёт от команды <strong>{session.team.name}</strong>.</p>
             : <div className="respond-who"><p>Чтобы отправить предложение, войдите как команда. Регистрации нет, нужен только email или телефон.</p><Button variant="secondary" onClick={() => requestLogin()}>Войти как команда</Button></div>}
           <form onSubmit={submit} noValidate>
             {submitError && <Alert tone="error">{submitError}</Alert>}

@@ -6,7 +6,6 @@
 
 /* Страницы на UI-kit */
 .header-role{display:flex;align-items:center;gap:12px;margin-left:auto}
-.header-team{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600;color:var(--ink-soft)}
 .filters{display:flex;align-items:end;gap:14px;flex-wrap:wrap;margin-bottom:22px;padding:16px;background:#e9f1f4;border:1px solid var(--line);border-radius:var(--radius)}
 .filters .ui-field{flex:0 1 240px}
 .paper-form,.detail-card,.rating-panel,.respond-card,.hero-explainer,.task-row,.side-note{border-radius:var(--radius)}
@@ -26,10 +25,42 @@
 .respond-card .ui-alert{margin:0}
 .respond-who{display:grid;gap:10px;justify-items:start;margin:0 0 18px;font-size:14px;color:var(--ink-soft)}
 .respond-who p{margin:0}
-p.respond-who{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+p.respond-who{display:block}
 .login-form{display:grid;gap:16px}
 .login-hint{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .login-back{justify-self:center}
 .error-page .ui-btn{margin-top:8px}
-@media(max-width:760px){.filters .ui-field{flex:1 1 180px}.header-team{display:none}}
+@media(max-width:760px){.filters .ui-field{flex:1 1 180px}.session-name{display:none}}
 @media(max-width:520px){.ui-logo-word small{display:none}}
+
+/* Плавность: список каталога не размонтируется при смене фильтров */
+.catalog-results{position:relative;min-height:420px}
+.catalog-results>.task-list,.catalog-results>.ui-empty{transition:opacity .18s var(--ease)}
+.catalog-results.is-refreshing>.task-list,.catalog-results.is-refreshing>.ui-empty{opacity:.55;pointer-events:none}
+.catalog-refresh{position:absolute;z-index:2;top:-38px;right:0;display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.catalog-error{margin-bottom:12px}
+.task-row{transition:border-color .18s var(--ease),box-shadow .18s var(--ease),opacity .18s var(--ease),transform .18s var(--ease);animation:row-in .2s var(--ease) both}
+@keyframes row-in{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.task-skeleton{min-height:148px;animation:none}
+.task-skeleton .score-tile{background:#e8eff2}
+.task-skeleton .task-summary{display:grid;gap:12px;align-content:center}
+.task-skeleton .task-summary span{display:block;height:14px;border-radius:6px;background:linear-gradient(90deg,#e8eff2 0%,#f3f7f8 50%,#e8eff2 100%);background-size:200% 100%;animation:skeleton 1.2s linear infinite}
+.task-skeleton .task-summary span:nth-child(1){width:30%}.task-skeleton .task-summary span:nth-child(2){width:65%;height:22px}.task-skeleton .task-summary span:nth-child(3){width:85%}
+@keyframes skeleton{to{background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.task-row,.catalog-results>.task-list{animation:none;transition:none}.task-skeleton .task-summary span{animation:none}}
+
+/* Сессия команды в шапке */
+.header-inner{height:80px}
+.session{position:relative}
+.session-trigger{display:flex;align-items:center;gap:9px;height:40px;padding:0 12px 0 4px;border:1px solid var(--line);border-radius:var(--radius-pill);background:var(--surface);color:var(--ink);font-family:var(--font);font-size:13.5px;font-weight:600;cursor:pointer;transition:background-color .15s,border-color .15s}
+.session-trigger:hover,.session-trigger[aria-expanded=true]{background:var(--sunken);border-color:var(--line-strong)}
+.session-avatar{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--ink);color:#fff;font-size:13px;font-weight:700}
+.session-name{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.session-trigger .ui-select-chevron{width:8px;height:8px}
+.session-menu{position:absolute;z-index:50;right:0;top:calc(100% + 8px);min-width:220px;padding:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-lg);animation:ui-pop .12s var(--ease)}
+.session-menu-head{display:grid;gap:2px;margin:0;padding:8px 10px 10px;border-bottom:1px solid var(--line)}
+.session-menu-head small{font-size:12px;color:var(--muted)}
+.session-menu-head strong{font-size:14px}
+.session-menu-item{display:block;width:100%;margin-top:6px;padding:9px 10px;border:0;border-radius:var(--radius-sm);background:transparent;color:var(--ink);font-family:var(--font);font-size:14px;text-align:left;cursor:pointer}
+.session-menu-item:hover,.session-menu-item:focus-visible{background:var(--sunken)}
+@media(max-width:1000px){.header-inner{height:auto}}
