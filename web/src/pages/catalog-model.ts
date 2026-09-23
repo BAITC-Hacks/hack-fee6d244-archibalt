@@ -3,7 +3,8 @@ import type { Task } from '../api'
 /** API отдаёт весь каталог; фильтруем локально, сохраняя глобальные ранги. */
 export function selectTasks(tasks: Task[], filters: { industry: string; level: string; search: string; sort: string }) {
   const normalize = (text: string) => text.toLocaleLowerCase('ru').replaceAll('ё', 'е')
-  const words = normalize(filters.search).trim().split(/\s+/).filter(Boolean)
+  // ponytail: простые окончания («доставка» → «доставки»); морфология нужна при росте каталога.
+  const words = normalize(filters.search).trim().split(/\s+/).filter(Boolean).map(word => word.length > 4 ? word.replace(/[аяеиуыю]$/, '') : word)
   const result = tasks.filter(task => {
     if (filters.industry && task.industry !== filters.industry) return false
     if (filters.level && task.level !== filters.level) return false
