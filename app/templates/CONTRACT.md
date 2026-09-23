@@ -1,7 +1,9 @@
-# Контракт main.py → шаблоны (v1, 13:20)
+# Контракт бэкенд → шаблоны (v2, 13:25, стек Go + Postgres)
 
 Владелец контракта: Абылай (backend). Изменения контракта — только через этот файл и уведомление в inbox/outbox.
-Шаблоны Jinja2 в `app/templates/`, статика в `app/static/` (URL `/static/...`). Владелец шаблонов и CSS: Ильяс.
+Шаблоны — **Go `html/template`** в `app/templates/*.html`, статика в `app/static/` (URL `/static/...`). Владелец шаблонов и CSS: Ильяс.
+
+**Синтаксис Go-шаблонов вместо Jinja.** Данные приходят как `map[string]any`, ключи ниже — как есть: `{{ .task.score }}`, `{{ range .tasks }}{{ .title }}{{ end }}`, `{{ if .can_respond }}...{{ end }}`, `{{ .flash }}`. Layout: каждый шаблон страницы начинается с `{{ template "base_top" . }}` и заканчивается `{{ template "base_bottom" . }}`; оба определены в `base.html` через `{{ define "base_top" }}` / `{{ define "base_bottom" }}`. Все `*.html` парсятся одним набором, имена `define` должны быть уникальны. Экранирование автоматическое. Сравнение: `{{ if eq .mode "team" }}`. Итерация по вопросам с id в имени поля: `name="answer_{{ .id }}"`.
 
 ## Общее для всех шаблонов
 
@@ -58,6 +60,6 @@ status: "new"|"selected"|"rejected", stage_confirmed:bool, created_at:str
 
 ## Что Ильяс может делать прямо сейчас
 
-1. `base.html`, `catalog.html`, `task_new.html`, `task_clarify.html`, `task_edit.html`, `task_show.html`, `error.html`, `app/static/app.css` по контексту выше. Для проверки вёрстки без бэкенда — любые фиктивные данные.
+1. `base.html`, `catalog.html`, `task_new.html`, `task_clarify.html`, `task_edit.html`, `task_show.html`, `error.html`, `app/static/app.css` по контексту выше. Для проверки вёрстки без бэкенда — любые фиктивные данные; бэкенд отдаст первую рабочую версию рендера к 13:45, дальше правь шаблоны при живом сервере `docker compose up`.
 2. `seed/drafts.json`, `seed/tasks.json`, `seed/teams.json`, `seed/proposals.json` — по объектам выше (для Task в seed достаточно `title, industry, draft_text, fields, confirmed, status`; score считает бэкенд).
 3. `demo/script.md` по «Полному сценарию защиты» из `research/acceptance-matrix.md`.
