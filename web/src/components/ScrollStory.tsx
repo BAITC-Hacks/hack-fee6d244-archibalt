@@ -63,7 +63,7 @@ export function ScrollStory({ example, catalog }: { example: Example; catalog: T
   const level = levelOf(score)
 
   return <>
-  <div className="container story-intro"><p className="eyebrow">Как это работает</p><h2>Одна задача: от черновика до первого места</h2></div>
+  <div className="container story-intro" id="how"><p className="eyebrow">Как это работает</p><h2>Одна задача: от черновика до первого места</h2></div>
   <section className="story" ref={section} aria-label="Как это работает: история одной задачи">
     <div className="container story-grid">
       <div className="story-steps">

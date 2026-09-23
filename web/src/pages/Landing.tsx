@@ -101,7 +101,7 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
       </div>
     </Reveal>
 
-    <Reveal className="container landing-section">
+    <Reveal className="container landing-section" id="compare">
       <p className="eyebrow">Сравнение</p>
       <h2>Чем это отличается от привычных способов</h2>
       <div className="compare-wrap"><table className="compare">
@@ -110,7 +110,7 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
       </table></div>
     </Reveal>
 
-    <Reveal className="container landing-section landing-faq">
+    <Reveal className="container landing-section landing-faq" id="faq">
       <p className="eyebrow">Вопросы</p>
       <h2>Коротко о главном</h2>
       <div className="faq">{FAQ.map(item => <details key={item.q}><summary>{item.q}</summary><p>{item.a}</p></details>)}</div>
