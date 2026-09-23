@@ -474,12 +474,13 @@ html{scrollbar-gutter:stable}
 .topbar{position:fixed;z-index:40;top:0;left:0;right:0;padding:12px 16px 0;pointer-events:none}
 .capsule{pointer-events:auto;position:relative;display:flex;align-items:center;gap:16px;max-width:72rem;height:60px;margin:0 auto;padding:0 10px 0 16px;border:1px solid transparent;border-radius:16px;background:transparent;box-shadow:none;transition:background-color .5s ease-out,border-color .5s ease-out,box-shadow .5s ease-out,-webkit-backdrop-filter .5s ease-out,backdrop-filter .5s ease-out}
 .capsule.is-glass{background:rgba(255,255,255,.7);-webkit-backdrop-filter:blur(16px) saturate(140%);backdrop-filter:blur(16px) saturate(140%);border-color:rgba(24,60,87,.1);box-shadow:0 8px 30px rgba(24,60,87,.08)}
-.capsule .brand{min-width:0}
-.capsule-nav{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:22px}
+.capsule .brand{min-width:0;flex:none}
+.capsule-nav{display:flex;align-items:center;gap:16px;margin-left:auto;flex:none}
 .capsule-nav a,.capsule-panel nav a{font-size:13px;font-weight:500;text-decoration:none;color:rgba(24,60,87,.7);white-space:nowrap;transition:color .15s ease}
 .capsule-nav a:hover,.capsule-nav a.is-active,.capsule-nav a[aria-current=page]{color:var(--ink)}
 .capsule-nav a.is-active,.capsule-nav a[aria-current=page]{font-weight:600}
-.capsule-right{display:flex;align-items:center;gap:8px;margin-left:auto}
+.capsule-right{display:flex;align-items:center;gap:8px;min-width:0}
+.capsule-right .session{min-width:0}.capsule-right .session-trigger{max-width:100%}.capsule-right .session-name{min-width:0}.capsule-right .session-avatar,.capsule-mode,.capsule-right .cta-pill,.capsule-burger{flex:none}
 .capsule-mode .ui-segmented{transform:scale(.92);transform-origin:right center}
 .cta-pill{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 16px;border-radius:999px;background:var(--accent-dark);color:#fff;font-size:13.5px;font-weight:600;text-decoration:none;white-space:nowrap;box-shadow:0 6px 18px rgba(187,79,44,.32);transition:background-color .15s ease,transform .1s ease,box-shadow .15s ease}
 .cta-pill:hover{background:var(--accent-darker);box-shadow:0 8px 22px rgba(187,79,44,.38)}
@@ -496,10 +497,10 @@ html{scrollbar-gutter:stable}
 @keyframes panel-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
 .main-page{padding-top:84px}
 .landing-hero-grid{padding-top:140px}
-@media(max-width:1320px){.capsule-nav{position:static;transform:none;margin-left:auto;gap:16px}.capsule-right{margin-left:12px}}
 @media(max-width:760px){.landing-hero-grid{padding-top:100px}}
-@media(max-width:1023px){.capsule-nav{display:none}.capsule-burger{display:grid}.capsule-mode{display:none}}
+@media(max-width:1180px){.capsule-nav{display:none}.capsule-right{margin-left:auto}.capsule-burger{display:grid}.capsule-mode{display:none}}
 @media(max-width:520px){.cta-pill{padding:0 12px;font-size:12.5px}.cta-pill span{display:none}.capsule{gap:8px;padding:0 6px 0 10px}}
+@media(max-width:520px){.capsule:has(.session) .ui-logo-word{display:none}}
 @media(prefers-reduced-motion:reduce){.capsule,.capsule-panel{transition:none;animation:none}}
 
 /* Как работает AI */
