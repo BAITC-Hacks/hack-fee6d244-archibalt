@@ -30,6 +30,11 @@ type Repo interface {
 	GetProposal(ctx context.Context, id int) (model.Proposal, error)
 	UpdateProposalStatus(ctx context.Context, id int, status model.ProposalStatus) (model.Proposal, error)
 	ConfirmStage(ctx context.Context, id int) (model.Proposal, error)
+	GetTeamByContact(ctx context.Context, contact string) (model.Team, error)
+	GetTeamByName(ctx context.Context, name string) (model.Team, error)
+	CreateTeam(ctx context.Context, t *model.Team) error
+	SetTeamContact(ctx context.Context, id int, contact string) error
+	ListProposalsByTeam(ctx context.Context, teamID int) ([]model.Proposal, error)
 }
 
 var _ Repo = (*store.Store)(nil)
@@ -38,14 +43,20 @@ var _ Repo = (*store.Store)(nil)
 type RatingFunc func(f model.Fields, confirmed bool) model.Rating
 
 type server struct {
-	repo    Repo
-	ai      ai.Client
-	compute RatingFunc
+	repo     Repo
+	ai       ai.Client
+	compute  RatingFunc
+	demoOTP  string
+	sessions *sessions
 }
 
 // NewHandler собирает роутер: /api/* + статика staticDir с SPA-fallback.
-func NewHandler(repo Repo, aiClient ai.Client, compute RatingFunc, staticDir string) http.Handler {
-	s := &server{repo: repo, ai: aiClient, compute: compute}
+// demoOTP — одноразовый код входа команд (пусто → DefaultDemoOTP).
+func NewHandler(repo Repo, aiClient ai.Client, compute RatingFunc, staticDir, demoOTP string) http.Handler {
+	if demoOTP == "" {
+		demoOTP = DefaultDemoOTP
+	}
+	s := &server{repo: repo, ai: aiClient, compute: compute, demoOTP: demoOTP, sessions: &sessions{m: map[string]int{}}}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/health", s.health)
@@ -59,6 +70,10 @@ func NewHandler(repo Repo, aiClient ai.Client, compute RatingFunc, staticDir str
 	mux.HandleFunc("POST /api/proposals/{id}/select", s.setProposalStatus(model.ProposalSelected))
 	mux.HandleFunc("POST /api/proposals/{id}/reject", s.setProposalStatus(model.ProposalRejected))
 	mux.HandleFunc("POST /api/proposals/{id}/confirm-stage", s.confirmStage)
+	mux.HandleFunc("POST /api/auth/request-code", s.requestCode)
+	mux.HandleFunc("POST /api/auth/verify", s.verify)
+	mux.HandleFunc("POST /api/auth/logout", s.logout)
+	mux.HandleFunc("GET /api/me", s.me)
 	mux.HandleFunc("GET /api/teams", s.listTeams)
 	mux.HandleFunc("GET /api/teams/{id}/recommended", s.recommended)
 	mux.HandleFunc("GET /api/ai", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, s.ai.Info()) })
@@ -357,13 +372,18 @@ func (s *server) confirm(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, t)
 }
 
+// createProposal: команда берётся из токена; team_id в теле игнорируется.
 func (s *server) createProposal(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r)
 	if !ok {
 		return
 	}
+	team, ok := s.teamFromRequest(r)
+	if !ok {
+		unauthorized(w)
+		return
+	}
 	var req struct {
-		TeamID   int    `json:"team_id"`
 		Idea     string `json:"idea"`
 		Plan     string `json:"plan"`
 		Deadline string `json:"deadline"`
@@ -373,7 +393,7 @@ func (s *server) createProposal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := model.Proposal{
-		TaskID: id, Team: model.TeamRef{ID: req.TeamID},
+		TaskID: id, Team: model.TeamRef{ID: team.ID, Name: team.Name},
 		Idea: strings.TrimSpace(req.Idea), Plan: strings.TrimSpace(req.Plan),
 		Deadline: strings.TrimSpace(req.Deadline), Link: strings.TrimSpace(req.Link),
 	}
@@ -381,7 +401,7 @@ func (s *server) createProposal(w http.ResponseWriter, r *http.Request) {
 	for _, f := range []struct {
 		name string
 		ok   bool
-	}{{"team_id", p.Team.ID > 0}, {"idea", p.Idea != ""}, {"plan", p.Plan != ""}, {"deadline", p.Deadline != ""}, {"link", p.Link != ""}} {
+	}{{"idea", p.Idea != ""}, {"plan", p.Plan != ""}, {"deadline", p.Deadline != ""}, {"link", p.Link != ""}} {
 		if !f.ok {
 			missing = append(missing, f.name)
 		}
@@ -402,14 +422,6 @@ func (s *server) createProposal(w http.ResponseWriter, r *http.Request) {
 	}
 	if t.Status != model.StatusPublished {
 		writeError(w, http.StatusBadRequest, "задача ещё не опубликована — откликнуться можно только на задачу из каталога")
-		return
-	}
-	if _, err := s.repo.GetTeam(r.Context(), p.Team.ID); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusBadRequest, "команда не найдена: team_id "+strconv.Itoa(p.Team.ID))
-			return
-		}
-		fail(w, err, "")
 		return
 	}
 	if err := s.repo.CreateProposal(r.Context(), &p); err != nil {
@@ -460,6 +472,9 @@ func (s *server) listTeams(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fail(w, err, "")
 		return
+	}
+	for i := range teams {
+		teams[i].Contact = "" // контакт — только владельцу в /api/me (ТЗ §5: персональные признаки не раскрываются)
 	}
 	writeJSON(w, http.StatusOK, teams)
 }

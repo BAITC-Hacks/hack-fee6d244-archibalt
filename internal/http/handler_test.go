@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ type memRepo struct {
 	proposals map[int]model.Proposal
 	nextTask  int
 	nextProp  int
+	nextTeam  int
 }
 
 func newMemRepo() *memRepo {
@@ -32,6 +34,7 @@ func newMemRepo() *memRepo {
 		tasks:     map[int]model.Task{},
 		teams:     map[int]model.Team{1: {ID: 1, Name: "Байты", Skills: []string{"Go"}, Interests: []string{"логистика"}, Tech: []string{"Postgres"}}},
 		proposals: map[int]model.Proposal{},
+		nextTeam:  1,
 	}
 }
 
@@ -169,6 +172,67 @@ func (m *memRepo) ConfirmStage(_ context.Context, id int) (model.Proposal, error
 	return p, nil
 }
 
+func (m *memRepo) GetTeamByContact(_ context.Context, contact string) (model.Team, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id := 1; id <= m.nextTeam; id++ {
+		if t, ok := m.teams[id]; ok && t.Contact != "" && strings.EqualFold(t.Contact, strings.TrimSpace(contact)) {
+			return t, nil
+		}
+	}
+	return model.Team{}, store.ErrNotFound
+}
+
+func (m *memRepo) GetTeamByName(_ context.Context, name string) (model.Team, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id := 1; id <= m.nextTeam; id++ {
+		if t, ok := m.teams[id]; ok && strings.EqualFold(strings.TrimSpace(t.Name), strings.TrimSpace(name)) {
+			return t, nil
+		}
+	}
+	return model.Team{}, store.ErrNotFound
+}
+
+func (m *memRepo) CreateTeam(_ context.Context, t *model.Team) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.nextTeam++
+	t.ID, t.Points = m.nextTeam, 0
+	for _, p := range []*[]string{&t.Skills, &t.Interests, &t.Tech} {
+		if *p == nil {
+			*p = []string{}
+		}
+	}
+	m.teams[t.ID] = *t
+	return nil
+}
+
+func (m *memRepo) SetTeamContact(_ context.Context, id int, contact string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.teams[id]
+	if !ok || t.Contact != "" {
+		return store.ErrNotFound
+	}
+	t.Contact = contact
+	m.teams[id] = t
+	return nil
+}
+
+func (m *memRepo) ListProposalsByTeam(_ context.Context, teamID int) ([]model.Proposal, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []model.Proposal{}
+	for _, p := range m.proposals {
+		if p.Team.ID == teamID {
+			out = append(out, p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
+	return out, nil
+}
+
 // fakeRating: 10 баллов за каждое непустое поле.
 func fakeRating(f model.Fields, _ bool) model.Rating {
 	score := 0
@@ -187,6 +251,12 @@ type testClient struct {
 
 func (c testClient) do(method, path string, body any, wantStatus int, out any) {
 	c.t.Helper()
+	c.doAuth("", method, path, body, wantStatus, out)
+}
+
+// doAuth — то же, что do, но с заголовком Authorization: Bearer <token> (если token не пуст).
+func (c testClient) doAuth(token, method, path string, body any, wantStatus int, out any) {
+	c.t.Helper()
 	var buf bytes.Buffer
 	if body != nil {
 		if s, ok := body.(string); ok {
@@ -197,6 +267,9 @@ func (c testClient) do(method, path string, body any, wantStatus int, out any) {
 	}
 	req := httptest.NewRequest(method, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
 	rec := httptest.NewRecorder()
 	c.h.ServeHTTP(rec, req)
 	if rec.Code != wantStatus {
@@ -211,7 +284,7 @@ func (c testClient) do(method, path string, body any, wantStatus int, out any) {
 
 func TestFlow(t *testing.T) {
 	repo := newMemRepo()
-	c := testClient{t, NewHandler(repo, fakeAI{}, fakeRating, t.TempDir())}
+	c := testClient{t, NewHandler(repo, fakeAI{}, fakeRating, t.TempDir(), "")}
 
 	var errResp struct{ Error string }
 	c.do("POST", "/api/tasks", map[string]string{"draft_text": "  ", "industry": "IT"}, 400, &errResp)
@@ -260,7 +333,10 @@ func TestFlow(t *testing.T) {
 		t.Fatalf("PUT fields должен мерджить и пересчитывать: score %d→%d, %+v", before, task.Score, task.Fields)
 	}
 
-	c.do("POST", path+"/proposals", map[string]any{"team_id": 1, "idea": "i", "plan": "p", "deadline": "d", "link": "l"}, 400, nil) // не опубликована
+	var login struct{ Token string }
+	c.do("POST", "/api/auth/verify", map[string]string{"contact": "bytes@example.com", "code": "000000", "team_name": "Байты"}, 200, &login)
+	tok := login.Token
+	c.doAuth(tok, "POST", path+"/proposals", map[string]any{"idea": "i", "plan": "p", "deadline": "d", "link": "https://x.kz"}, 400, nil) // не опубликована
 
 	c.do("POST", path+"/confirm", nil, 200, &task)
 	if !task.Confirmed || task.Status != model.StatusPublished || task.PublishedAt == nil {
@@ -276,10 +352,11 @@ func TestFlow(t *testing.T) {
 	}
 	c.do("GET", "/api/tasks?level=bogus", nil, 400, nil)
 
-	c.do("POST", path+"/proposals", map[string]any{"team_id": 1, "idea": "idea"}, 400, nil)
-	c.do("POST", path+"/proposals", map[string]any{"team_id": 42, "idea": "i", "plan": "p", "deadline": "d", "link": "l"}, 400, nil)
+	c.doAuth(tok, "POST", path+"/proposals", map[string]any{"idea": "idea"}, 400, nil)
+	c.doAuth(tok, "POST", path+"/proposals", map[string]any{"idea": "i", "plan": "p", "deadline": "d", "link": "l"}, 400, nil)
+	c.do("POST", path+"/proposals", map[string]any{"team_id": 1, "idea": "i", "plan": "p", "deadline": "d", "link": "https://x.kz"}, 401, nil)
 	var prop model.Proposal
-	c.do("POST", path+"/proposals", map[string]any{"team_id": 1, "idea": "Бот", "plan": "2 спринта", "deadline": "3 недели", "link": "https://example.com"}, 201, &prop)
+	c.doAuth(tok, "POST", path+"/proposals", map[string]any{"idea": "Бот", "plan": "2 спринта", "deadline": "3 недели", "link": "https://example.com"}, 201, &prop)
 	if prop.ID == 0 || prop.Team.Name != "Байты" || prop.Status != model.ProposalNew {
 		t.Fatalf("proposal: %+v", prop)
 	}
@@ -311,7 +388,7 @@ func TestFlow(t *testing.T) {
 }
 
 func TestMiscEndpoints(t *testing.T) {
-	c := testClient{t, NewHandler(newMemRepo(), fakeAI{}, fakeRating, t.TempDir()+"/missing")}
+	c := testClient{t, NewHandler(newMemRepo(), fakeAI{}, fakeRating, t.TempDir()+"/missing", "")}
 	var health map[string]any
 	c.do("GET", "/api/health", nil, 200, &health)
 	if health["ok"] != true || health["ai_mode"] != "mock" {
@@ -348,7 +425,7 @@ func TestSPAFallback(t *testing.T) {
 	}
 	must(writeFile(dir+"/index.html", "<html>app</html>"))
 	must(writeFile(dir+"/app.js", "console.log(1)"))
-	h := NewHandler(newMemRepo(), fakeAI{}, fakeRating, dir)
+	h := NewHandler(newMemRepo(), fakeAI{}, fakeRating, dir, "")
 	for path, want := range map[string]string{"/": "app", "/task/5/edit": "app", "/app.js": "console.log"} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))

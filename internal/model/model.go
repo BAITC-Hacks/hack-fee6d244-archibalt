@@ -145,6 +145,7 @@ type Team struct {
 	Interests []string `json:"interests"`
 	Tech      []string `json:"tech"`
 	Points    int      `json:"points"`
+	Contact   string   `json:"contact"` // нормализованный email/телефон для входа; пусто у seed-команд
 }
 
 // ---- контракты между модулями ----

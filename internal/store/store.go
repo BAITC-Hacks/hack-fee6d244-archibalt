@@ -239,14 +239,14 @@ func (s *Store) UpdateTask(ctx context.Context, t *model.Task) error {
 
 // ---- команды ----
 
-const teamSelect = `SELECT id, name, to_jsonb(skills), to_jsonb(interests), to_jsonb(tech), points FROM teams`
+const teamSelect = `SELECT id, name, to_jsonb(skills), to_jsonb(interests), to_jsonb(tech), points, COALESCE(contact, '') FROM teams`
 
 func scanTeam(sc scanner) (model.Team, error) {
 	var (
 		t                       model.Team
 		skills, interests, tech []byte
 	)
-	if err := sc.Scan(&t.ID, &t.Name, &skills, &interests, &tech, &t.Points); err != nil {
+	if err := sc.Scan(&t.ID, &t.Name, &skills, &interests, &tech, &t.Points, &t.Contact); err != nil {
 		return t, err
 	}
 	for _, p := range []struct {

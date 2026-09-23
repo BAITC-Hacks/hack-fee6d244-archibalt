@@ -10,6 +10,11 @@ CREATE TABLE IF NOT EXISTS teams (
     points    int    NOT NULL DEFAULT 0
 );
 
+-- Вход команды по одноразовому коду: contact хранится нормализованным (lower, телефон с «+»).
+-- ADD COLUMN IF NOT EXISTS — идемпотентно на существующей БД с данными; у seed-команд contact = NULL.
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS contact text;
+CREATE UNIQUE INDEX IF NOT EXISTS teams_contact_idx ON teams (lower(contact)) WHERE contact <> '';
+
 CREATE TABLE IF NOT EXISTS tasks (
     id           serial PRIMARY KEY,
     industry     text        NOT NULL DEFAULT '',

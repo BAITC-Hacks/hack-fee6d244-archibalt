@@ -18,7 +18,7 @@ import (
 )
 
 type config struct {
-	port, databaseURL, openAIKey, openAIModel, seedDir, staticDir string
+	port, databaseURL, openAIKey, openAIModel, seedDir, staticDir, demoOTP string
 }
 
 func env(key, def string) string {
@@ -36,6 +36,7 @@ func loadConfig() config {
 		openAIModel: env("OPENAI_MODEL", "gpt-4.1-mini"),
 		seedDir:     env("SEED_DIR", "./seed"),
 		staticDir:   env("STATIC_DIR", "./web/dist"),
+		demoOTP:     env("DEMO_OTP", httpapi.DefaultDemoOTP), // реальной отправки кода нет
 	}
 }
 
@@ -73,7 +74,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.port,
-		Handler:           httpapi.NewHandler(st, aiClient, rating.Compute, cfg.staticDir),
+		Handler:           httpapi.NewHandler(st, aiClient, rating.Compute, cfg.staticDir, cfg.demoOTP),
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      90 * time.Second, // AI-вызовы до ~10 с с повтором
 	}
