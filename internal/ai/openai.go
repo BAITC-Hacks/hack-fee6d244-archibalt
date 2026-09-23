@@ -28,7 +28,7 @@ func newOpenAI(apiKey, modelName, endpoint string) *openAIClient {
 	if modelName == "" {
 		modelName = defaultModel
 	}
-	return &openAIClient{apiKey: apiKey, model: modelName, endpoint: endpoint, http: &http.Client{Timeout: 20 * time.Second}}
+	return &openAIClient{apiKey: apiKey, model: modelName, endpoint: endpoint, http: &http.Client{Timeout: 10 * time.Second}}
 }
 
 type message struct {
