@@ -4,7 +4,7 @@ export type Fields = Record<FieldKey, string>
 export interface Breakdown { key: string; label: string; weight: number; earned: number; reason: string }
 export interface Missing { key: string; label: string; gain: number; hint: string }
 export interface Question { id: number; text: string; field_key: FieldKey; answer: string }
-export interface Team { id: number; name: string; skills: string[]; interests: string[]; tech: string[]; points: number }
+export interface Team { id: number; name: string; contact?: string; skills: string[]; interests: string[]; tech: string[]; points: number }
 export interface Proposal { id: number; task_id: number; team: { id: number; name: string }; idea: string; plan: string; deadline: string; link: string; status: 'new' | 'selected' | 'rejected'; stage_confirmed: boolean; created_at: string }
 export interface Task { id: number; industry: string; status: 'draft' | 'clarifying' | 'editing' | 'published'; draft_text: string; fields: Fields; confirmed: boolean; score: number; level: Level; level_label: string; breakdown: Breakdown[]; missing: Missing[]; questions: Question[]; ai_mode: 'openai' | 'mock'; created_at: string; published_at: string | null; proposals?: Proposal[] }
 export interface CatalogResponse { tasks: Task[]; industries: string[]; levels: { key: string; label: string }[] }
@@ -22,3 +22,4 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 export const json = (method: 'POST' | 'PUT', body?: unknown): RequestInit => ({ method, body: body === undefined ? undefined : JSON.stringify(body) })
+export const withToken = (token: string, options: RequestInit = {}): RequestInit => ({ ...options, headers: { ...options.headers, Authorization: `Bearer ${token}` } })
