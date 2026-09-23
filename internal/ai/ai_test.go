@@ -342,3 +342,51 @@ func TestGuardChecksTitle(t *testing.T) {
 		t.Errorf("title = %q", r.Fields[model.FieldTitle])
 	}
 }
+
+// Стем 4/5 букв без окончания: честный пересказ с другой формой слова не стирается.
+func TestGuardKeepsOtherWordForms(t *testing.T) {
+	src := "Сейчас много заявок, их вручную ведут в таблице, и часть теряются. Хотим сократить время ответа с 2 дней до 4 часов"
+	f := Guard(model.Fields{
+		model.FieldContext:         "Заявки регистрируются вручную в таблицах и теряются",
+		model.FieldSuccessCriteria: "Сократить время ответа с 2 дня до 4 часа",
+		model.FieldNeed:            "Сократить время ответа с 2 дня до 4 недель", // число с чужим словом
+	}, src)
+	if f[model.FieldContext] == "" || f[model.FieldSuccessCriteria] == "" {
+		t.Errorf("честный пересказ стёрт: %+v", f)
+	}
+	if f[model.FieldNeed] != "" {
+		t.Errorf("число с чужим словом сохранено: %q", f[model.FieldNeed])
+	}
+}
+
+// Слово с заглавной буквы не в начале предложения, которого нет в источнике, очищает поле.
+func TestGuardDropsInventedProperName(t *testing.T) {
+	src := "Менеджеры вручную переносят заявки клиентов из таблицы в отчёт"
+	f := Guard(model.Fields{
+		model.FieldNeed:    "Менеджеры переносят заявки клиентов из Kaspi вручную", // 5 из 6 слов совпали
+		model.FieldContext: "Заявки клиентов менеджеры переносят вручную. Отчёт из таблицы",
+	}, src)
+	if f[model.FieldNeed] != "" {
+		t.Errorf("выдуманный бренд сохранён: %q", f[model.FieldNeed])
+	}
+	if f[model.FieldContext] == "" {
+		t.Error("заглавная в начале предложения принята за имя")
+	}
+}
+
+// Отрицание в поле при утверждении в источнике (и наоборот) очищает поле.
+func TestGuardDropsFlippedNegation(t *testing.T) {
+	pos := "Данные есть, выгрузки CRM передадим после NDA"
+	neg := "Данных нет, выгрузки CRM не передадим"
+	if f := Guard(model.Fields{model.FieldData: neg}, pos); f[model.FieldData] != "" {
+		t.Errorf("отрицание при утверждении в источнике сохранено: %q", f[model.FieldData])
+	}
+	if f := Guard(model.Fields{model.FieldData: "Данные есть, выгрузки CRM передадим"}, neg); f[model.FieldData] != "" {
+		t.Errorf("утверждение при отрицании в источнике сохранено: %q", f[model.FieldData])
+	}
+	src := "персональных данных нет, работаем с логами"
+	f := Guard(model.Fields{model.FieldConstraints: "персональных данных нет", model.FieldData: "работаем с логами"}, src)
+	if f[model.FieldConstraints] == "" || f[model.FieldData] == "" {
+		t.Errorf("честное отрицание стёрто: %+v", f)
+	}
+}

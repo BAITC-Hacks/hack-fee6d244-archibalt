@@ -449,3 +449,115 @@ func TestQACases(t *testing.T) {
 		t.Errorf("ложное предупреждение: %q", r.Breakdown[3].Reason)
 	}
 }
+
+// Отрицание рядом с ключевым словом обнуляет признак: остаток без «не/нет/ни/никаких/никто/без + до 3 слов».
+func TestNegationNearSignGivesZero(t *testing.T) {
+	cases := []struct {
+		k    model.FieldKey
+		key  string
+		text string
+	}{
+		{model.FieldData, "data", "Никаких данных, выгрузок и файлов вы не получите, доступ к CRM закрыт"},
+		{model.FieldExpectedResult, "expected_result", "Не нужен ни прототип ни сервис ни отчёт"},
+		{model.FieldUsers, "users", "Никто, ни сотрудники ни клиенты пользоваться не будут"},
+		{model.FieldInteractionFormat, "business_link", "Чат раз в год, отвечать не будем"},
+	}
+	for _, c := range cases {
+		r := Compute(model.Fields{c.k: c.text}, false)
+		checkInvariants(t, r)
+		if b := r.Breakdown[indexOf(c.key)]; b.Earned != 0 || b.Reason != "Сведения отсутствуют (отказ)" {
+			t.Errorf("%q: %s = %d %q", c.text, c.key, b.Earned, b.Reason)
+		}
+	}
+	// Отрицание-уточнение при сохранившемся признаке не обнуляет.
+	keep := []struct {
+		k    model.FieldKey
+		text string
+	}{
+		{model.FieldUsers, "Сотрудники склада без доступа к ПК"},
+		{model.FieldData, "Выгрузим журнал заявок без персональных данных в первую неделю"},
+		{model.FieldInteractionFormat, "Созвон раз в неделю, в выходные отвечать не будем"},
+		{model.FieldData, "Выгрузки CRM нет, но есть таблицы Excel, передадим после NDA"},
+	}
+	for _, c := range keep {
+		if st := evalField(c.k, c.text).st; st != stFull {
+			t.Errorf("%s %q: state %d, want full", c.k, c.text, st)
+		}
+	}
+}
+
+func indexOf(key string) int {
+	for i, w := range Weights {
+		if w.Key == key {
+			return i
+		}
+	}
+	return -1
+}
+
+// Фразы-заглушки внутри текста: без них остаётся меньше 3 значимых слов — 0.
+func TestStubPhrasesInsideText(t *testing.T) {
+	cases := []struct {
+		k    model.FieldKey
+		key  string
+		text string
+	}{
+		{model.FieldContext, "context_need", "Здесь будет описание контекста, заполним позднее обязательно"},
+		{model.FieldUsers, "users", "пользователи (уточним)"},
+		{model.FieldExpectedResult, "expected_result", "какой-нибудь сервис для чего-нибудь"},
+		{model.FieldSuccessCriteria, "success_criteria", "примем если понравится"},
+		{model.FieldData, "data", "TBD: выгрузка потом"},
+	}
+	for _, c := range cases {
+		r := Compute(model.Fields{c.k: c.text}, false)
+		checkInvariants(t, r)
+		if got := earnedOf(r, c.key); got != 0 {
+			t.Errorf("%q: %s = %d", c.text, c.key, got)
+		}
+	}
+	// «не позднее» — срок, а не заглушка; содержательный текст с «уточним» остаётся.
+	if st := evalField(model.FieldExpectedResult, "Отчёт по продажам с фильтром по датам, детали уточним на созвоне").st; st != stFull {
+		t.Errorf("содержательный результат с «уточним»: state %d", st)
+	}
+	if st := evalField(model.FieldInteractionFormat, "Созвон по вторникам, отвечаем не позднее следующего дня").st; st != stFull {
+		t.Errorf("«не позднее» принято за заглушку: state %d", st)
+	}
+}
+
+// Бессмыслица в контексте/потребности — 0 с отдельной причиной; обычный абзац — как раньше.
+func TestGibberishContextNeed(t *testing.T) {
+	for _, f := range []model.Fields{
+		{model.FieldContext: "абвгд еёжзи йклмн опрст уфхцч шщъыь эюя фыва олдж"},
+		{model.FieldNeed: "qwerty asdfgh zxcvbn"},
+		{model.FieldContext: "абвгд еёжзи йклмн опрст уфхцч шщъыь эюя фыва олдж", model.FieldNeed: "qwerty asdfgh zxcvbn"},
+	} {
+		r := Compute(f, false)
+		checkInvariants(t, r)
+		if b := r.Breakdown[0]; b.Earned != 0 || b.Reason != "Не заполнено: текст не похож на описание" {
+			t.Errorf("%v: context_need = %d %q", f, b.Earned, b.Reason)
+		}
+	}
+	card := fullCard()
+	for _, k := range []model.FieldKey{model.FieldContext, model.FieldNeed} {
+		if st := evalField(k, card[k]).st; st != stFull {
+			t.Errorf("обычный абзац %s: state %d", k, st)
+		}
+	}
+	if st := evalField(model.FieldContext, "Заявки в CRM и 1С вручную переносят менеджеры, теряется время").st; st != stFull {
+		t.Errorf("абзац с аббревиатурами: state %d", st)
+	}
+}
+
+// Простые последовательности цифр — не телефон.
+func TestPhoneRejectsSequences(t *testing.T) {
+	for _, v := range []string{"1234567890", "0123456789", "1231231231", "+7 123 456 7890", "8 (123) 123-12-31", "9876543210"} {
+		if kind := contactKind(v); kind != "" {
+			t.Errorf("%q принят как %s", v, kind)
+		}
+	}
+	for _, v := range []string{"+7 701 123 45 67", "8 (701) 123-45-67"} {
+		if contactKind(v) != "телефон" {
+			t.Errorf("%q не принят", v)
+		}
+	}
+}

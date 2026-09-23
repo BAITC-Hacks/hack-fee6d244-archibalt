@@ -14,17 +14,25 @@ import (
 const guardThreshold = 0.6
 
 // Guard — защита от выдуманных фактов (ТЗ §5). Возвращает копию со всеми 10 ключами,
-// где каждое непустое поле (включая title) сохранено, только если ≥ 60% его значимых слов
-// (длина ≥ 4, грубый стем — первые 5 букв) встречаются в sourceText, а каждое число стоит
-// в источнике рядом с тем же словом (см. supported). Пустой title заполняет finishCard.
+// где каждое непустое поле (включая title) сохранено, только если:
+//   - ≥ 60% его значимых слов (длина ≥ 4) совпадают со словами sourceText по стему (см. stem);
+//   - каждое число стоит в источнике рядом с тем же словом (по стему, см. supported);
+//   - нет слова с заглавной буквы не в начале предложения (имя, бренд), которого нет в источнике;
+//   - слово не сменило полярность: в поле «не передадим», а в источнике только «передадим»
+//     (или наоборот, см. polarity).
+//
+// Пустой title заполняет finishCard.
 func Guard(fields model.Fields, sourceText string) model.Fields {
 	src := map[string]bool{}
 	ts := tokens(sourceText)
 	for i, t := range ts {
 		src[t] = true
 		src[stem(t)] = true
-		if r := []rune(t); len(r) > 4 {
-			src[string(r[:4])] = true // слово из 4 букв («учёт») совпадает с формой «учёта»
+		// префиксы 4 и 5 букв: «таблицах» (стем из 5) совпадёт с «таблиц» (стем из 4) и наоборот
+		for _, n := range []int{4, 5} {
+			if r := []rune(t); len(r) >= n {
+				src[trimEnding(r[:n])] = true
+			}
 		}
 		if hasDigit(t) { // в источнике — обе пары: с соседом справа и слева
 			src[numPair(ts, i)] = true
@@ -33,11 +41,12 @@ func Guard(fields model.Fields, sourceText string) model.Fields {
 			}
 		}
 	}
+	srcPol := polarity(sourceText)
 	out := fields.Full()
 	for _, k := range model.FieldKeys {
 		v := strings.TrimSpace(out[k])
 		out[k] = v
-		if v != "" && !supported(v, src) {
+		if v != "" && (!supported(v, src) || inventedName(v, src) || polarityFlipped(polarity(v), srcPol)) {
 			out[k] = ""
 		}
 	}
@@ -46,6 +55,7 @@ func Guard(fields model.Fields, sourceText string) model.Fields {
 
 // numPair — ключ «число + следующее слово (стем)»; для числа в конце текста —
 // «предыдущее слово (стем) + число»; для одиночного числа — само число.
+// Стем соседа снимает окончание: «2 дня» = «2 дней», «4 часа» = «4 часов».
 func numPair(ts []string, i int) string {
 	switch {
 	case i+1 < len(ts):
@@ -78,15 +88,106 @@ func supported(v string, src map[string]bool) bool {
 	return total == 0 || float64(hit) >= guardThreshold*float64(total)
 }
 
+// inventedName — в поле есть слово с заглавной буквы не в начале предложения (имя
+// собственное, бренд: «Kaspi», «Сбербанк»), которого нет в источнике даже по стему.
+func inventedName(v string, src map[string]bool) bool {
+	sentStart := true
+	var word []rune
+	check := func() bool {
+		defer func() { word = word[:0] }()
+		if len(word) == 0 {
+			return false
+		}
+		first := sentStart
+		sentStart = false
+		if first || !unicode.IsUpper(word[0]) || hasDigit(string(word)) {
+			return false
+		}
+		t := tokens(string(word))
+		return len(t) == 1 && !src[t[0]] && !src[stem(t[0])]
+	}
+	for _, r := range v {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			word = append(word, r)
+			continue
+		}
+		if check() {
+			return true
+		}
+		if strings.ContainsRune(".!?…\n", r) {
+			sentStart = true
+		}
+	}
+	return check()
+}
+
+// negMarkers — маркеры отрицания для проверки полярности.
+var negMarkers = map[string]bool{"не": true, "нет": true, "никак": true, "никаких": true, "без": true}
+
+const (
+	polPos = 1 << iota // слово встречается без отрицания
+	polNeg             // слово встречается с отрицанием
+)
+
+// polarity — для стема каждого значимого слова (длина ≥ 4): встречается ли оно с отрицанием
+// (маркер не дальше 2 слов перед ним или «нет» сразу после: «данных нет») и без него.
+// Отрицание действует в пределах фрагмента между знаками препинания.
+func polarity(text string) map[string]int {
+	out := map[string]int{}
+	clauses := strings.FieldsFunc(text, func(r rune) bool { return strings.ContainsRune(",.;:!?()—–\n", r) })
+	for _, c := range clauses {
+		ts := tokens(c)
+		for i, t := range ts {
+			if negMarkers[t] || hasDigit(t) || len([]rune(t)) < 4 {
+				continue
+			}
+			bit := polPos
+			if i+1 < len(ts) && ts[i+1] == "нет" {
+				bit = polNeg
+			}
+			for j := max(0, i-2); j < i; j++ {
+				if negMarkers[ts[j]] {
+					bit = polNeg
+				}
+			}
+			out[stem(t)] |= bit
+		}
+	}
+	return out
+}
+
+// polarityFlipped — слово поля есть в источнике, но только с противоположной полярностью.
+func polarityFlipped(field, src map[string]int) bool {
+	for s, p := range field {
+		if sp := src[s]; sp != 0 && sp&p == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func tokens(s string) []string {
 	s = strings.ReplaceAll(strings.ToLower(s), "ё", "е")
 	return strings.FieldsFunc(s, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
 }
 
+// stem — грубый стем: первые 4 буквы для слов длиной 4–6, первые 5 — для более длинных,
+// без концевых гласных, «й» и «ь» (не короче 2 букв): «заявки»/«заявок» → «заяв»,
+// «таблицах»/«таблице» → «табл», «дня»/«дней» → «дн», «часа»/«часов» → «час».
 func stem(t string) string {
 	r := []rune(t)
-	if len(r) > 5 {
+	switch {
+	case len(r) > 6:
 		r = r[:5]
+	case len(r) >= 4:
+		r = r[:4]
+	}
+	return trimEnding(r)
+}
+
+func trimEnding(r []rune) string {
+	for len(r) > 2 && strings.ContainsRune("аеиоуыэюяйь", r[len(r)-1]) {
+		r = r[:len(r)-1]
 	}
 	return string(r)
 }
