@@ -69,17 +69,6 @@ make run
 
 С другой БД задайте `DATABASE_URL` перед `make run`; `make db` в этом случае не нужен. Проверки описаны в разделе «Тестовые сценарии» ниже.
 
-### Деплой в облако (по желанию)
-
-Приложение — один контейнер из `Dockerfile` плюс любой PostgreSQL 16. Подходит любой хостинг с Docker и managed Postgres; проверенный бесплатный вариант — Render.
-
-1. База: Render → New → PostgreSQL (Free) → скопировать Internal Database URL.
-2. Сервис: Render → New → Web Service → Docker из этого репозитория (или Deploy an existing image, если репозиторий недоступен: `docker buildx build --platform linux/amd64 -t ghcr.io/<логин>/archibalt:latest --push .`, пакет сделать публичным).
-3. Environment: `DATABASE_URL` = URL из шага 1. `PORT` платформа задаёт сама, сервер его читает. `OPENAI_API_KEY` по желанию, без него mock.
-4. Проверка: `https://<имя>.onrender.com/api/health` → `ok:true, db:true`. Seed загрузится при первом старте на пустой базе.
-
-Бесплатный сервис Render засыпает после 15 минут простоя, первый запрос ждёт около минуты. Для внешнего Postgres с TLS (например, Neon) добавьте `?sslmode=require` в `DATABASE_URL`.
-
 ## Параметры окружения
 
 | Переменная | По умолчанию | Назначение |
