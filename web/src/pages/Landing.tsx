@@ -2,33 +2,28 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { CatalogResponse } from '../api'
 import { AnimatedBackground } from '../components/AnimatedBackground'
-import { useExample } from '../components/BeforeAfter'
-import { ScrollStory } from '../components/ScrollStory'
+import { BeforeAfter, useExample } from '../components/BeforeAfter'
 import { Reveal } from '../components/Reveal'
 import { capitalize, plural, type Mode } from '../fields'
 import { Button, ButtonLink } from '../ui'
 import { useLoad } from '../useLoad'
 import { useStartChat } from './TaskNew'
 
-const COMPARE: { row: string; cells: [string, string, string, string] }[] = [
-  { row: 'Уточняющие вопросы по пробелам', cells: ['Да, 3–4 по вашему тексту', 'Нет, одинаковые поля для всех', 'Да, но без структуры', 'Нет'] },
-  { row: 'Объяснение балла готовности', cells: ['Да, 7 показателей с +N', 'Нет', 'Нет', 'Нет'] },
-  { row: 'Защита от выдуманных фактов', cells: ['Да, проверка по вашему тексту', 'Не требуется', 'Нет', 'Не требуется'] },
-  { row: 'Открытый каталог для команд', cells: ['Да, сортировка по баллу', 'Нет', 'Нет', 'Нет'] },
-  { row: 'Выбор команды вручную', cells: ['Да, решение за вами', 'Нет', 'Нет', 'Да, в переписке'] },
-  { row: 'Переписка по каждому отклику', cells: ['Да, у отклика', 'Нет', 'Нет', 'Да, всё в одном чате'] },
+const STEPS = [
+  { title: 'Обсудите проблему', text: 'AI уточнит, что происходит сейчас и какой результат нужен.' },
+  { title: 'Подтвердите ТЗ', text: 'Проверьте описание и критерии успеха перед публикацией.' },
+  { title: 'Получите предложения', text: 'Опубликованная задача доступна всем студенческим командам.' },
+  { title: 'Выберите команду', text: 'Сравните отклики и решите, с кем продолжить работу.' },
 ]
-const YES = /^Да/
 
 const FAQ = [
-  { q: 'Нужна ли регистрация?', a: 'Нет. Вход по email или телефону и одноразовому коду в момент, когда он нужен. В демо код всегда 000000.' },
-  { q: 'Кто выбирает команду?', a: 'Только вы. Автоматического назначения нет: вы сравниваете отклики и выбираете вручную, команда подтверждает, что берёт проект.' },
-  { q: 'Может ли AI что-то выдумать в карточке?', a: 'Карточка собирается только из вашего описания и ответов. Проверка удаляет сведения, которых в них нет, а пустое поле остаётся пустым. Последний вызов AI открыт на странице «Как работает AI».' },
-  { q: 'Сколько это стоит?', a: 'Для участников AI Sana бесплатно.' },
-  { q: 'Можно ли откликнуться на слабую задачу?', a: 'Да. Задача с баллом 0–39 видна в каталоге с пометкой «требует уточнения» и принимает отклики, как любая другая.' },
+  { q: 'Нужен готовый документ с ТЗ?', a: 'Нет. Начните с проблемы. AI поможет собрать черновик, который вы сможете исправить перед публикацией.' },
+  { q: 'Кто выбирает исполнителей?', a: 'Вы. Можно выбрать одну, несколько или ни одной команды.' },
+  { q: 'Низкий рейтинг мешает откликнуться?', a: 'Нет. Все опубликованные задачи доступны командам. Балл показывает, какие сведения ещё стоит уточнить.' },
+  { q: 'Когда понадобится вход?', a: 'При сборке карточки и публикации задачи. Так вы сможете вернуться к ней и увидеть отклики.' },
 ]
 
-/** Главная: одно поле для задачи, пример «до/после», как работает, сравнение, FAQ. */
+/** Главная: hero, четыре шага, готовность задачи с примером «было/стало», FAQ и CTA. */
 export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
   const startChat = useStartChat()
   const { data: catalog } = useLoad<CatalogResponse>('/tasks', { tasks: [], industries: [], levels: [] })
@@ -82,24 +77,26 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
       </div>
     </div></section>
 
-    <ScrollStory example={example} catalog={catalog.tasks} />
-
-    <Reveal className="container landing-section">
-      <div className="facts">
-        <div><strong><CountUp to={example.breakdown.length || 7} /></strong><p>показателей в открытой формуле рейтинга</p></div>
-        <div><strong>0–<CountUp to={100} /></strong><p>балл готовности и место в каталоге</p></div>
-        <div><strong>≥<CountUp to={3} /></strong><p>уточняющих вопроса по вашему тексту</p></div>
-        <div><strong><CountUp to={2} /></strong><p>подтверждения: вы выбираете команду, команда принимает проект</p></div>
-      </div>
+    <Reveal className="container landing-section" id="how">
+      <p className="eyebrow">Как это работает</p>
+      <h2>От разговора — к выбору команды</h2>
+      <ol className="landing-steps">{STEPS.map((step, index) => <li key={step.title}><span className="landing-step-num">{index + 1}</span><h3>{step.title}</h3><p>{step.text}</p></li>)}</ol>
     </Reveal>
 
-    <Reveal className="container landing-section" id="compare">
-      <p className="eyebrow">Сравнение</p>
-      <h2>Чем это отличается от привычных способов</h2>
-      <div className="compare-wrap"><table className="compare">
-        <thead><tr><th scope="col"><span className="visually-hidden">Возможность</span></th><th scope="col" className="is-us">Archibalt</th><th scope="col">Обычная анкета</th><th scope="col">Чат с LLM</th><th scope="col">Excel и WhatsApp</th></tr></thead>
-        <tbody>{COMPARE.map(line => <tr key={line.row}><th scope="row">{line.row}</th>{line.cells.map((cell, index) => <td key={index} className={`${index === 0 ? 'is-us ' : ''}${YES.test(cell) ? 'is-yes' : 'is-no'}`}>{cell}</td>)}</tr>)}</tbody>
-      </table></div>
+    <Reveal className="container landing-section landing-readiness">
+      <div className="landing-readiness-copy">
+        <p className="eyebrow">Рейтинг готовности</p>
+        <h2>Понятно, чего не хватает до старта</h2>
+        <p className="lead">Рейтинг 0–100 показывает готовность задачи. Дополняйте сведения и подтверждайте изменения: балл пересчитается, а позиция в каталоге обновится.</p>
+        <ul className="landing-notes">
+          <li>Откликаться можно на задачи с любым рейтингом.</li>
+          <li>Команды получают баллы за этапы, подтверждённые бизнесом.</li>
+        </ul>
+      </div>
+      <div className="landing-readiness-example">
+        <p className="eyebrow">Пример улучшения задачи</p>
+        <BeforeAfter example={example} />
+      </div>
     </Reveal>
 
     <Reveal className="container landing-section landing-faq" id="faq">
@@ -111,13 +108,12 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
     <Reveal className="container landing-section">
       <div className="final-cta">
         <AnimatedBackground intensity="soft" />
-        <div><h2>Первая задача — за три минуты</h2><p>Опишите проблему, ответьте на вопросы и посмотрите, какой балл получит карточка.</p></div>
+        <div><h2>Начнём с вашей задачи</h2></div>
         <div className="final-cta-actions">
-          <Button variant="primary" size="lg" aria-haspopup="dialog" onClick={discuss}>Обсудить задачу</Button>
-          <Link className="text-link" to="/catalog">Смотреть каталог</Link>
+          <Button variant="primary" size="lg" onClick={discuss}>Обсудить задачу</Button>
+          <ButtonLink variant="secondary" size="lg" to="/catalog" onClick={() => setMode('team')}>Найти задачу</ButtonLink>
         </div>
       </div>
-      <p className="final-note">Пример «до/после» — демо-задача <Link to="/task/1">«{example.title}»</Link>. Балл «после» показан для случая, когда недостающие поля заполнены.</p>
     </Reveal>
   </div>
 }
@@ -145,30 +141,4 @@ function HeroRing({ from, to }: { from: number; to: number }) {
     <svg viewBox="0 0 160 160" aria-hidden="true"><circle cx="80" cy="80" r={r} className="hero-ring-track" /><circle cx="80" cy="80" r={r} className="hero-ring-arc" strokeDasharray={`${(value / 100) * length} ${length}`} /></svg>
     <span className="hero-ring-value"><strong>{value}</strong><small>из 100</small></span>
   </span>
-}
-
-/** Число считает от 0 до значения, когда впервые попадает на экран (один раз, ~1 с, easing out). */
-function CountUp({ to, duration = 1000 }: { to: number; duration?: number }) {
-  const node = useRef<HTMLSpanElement>(null)
-  useEffect(() => {
-    const el = node.current
-    if (!el) return
-    if (typeof IntersectionObserver === 'undefined' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { el.textContent = String(to); return }
-    el.textContent = '0'
-    let frame = 0
-    const observer = new IntersectionObserver(entries => {
-      if (!entries.some(entry => entry.isIntersecting)) return
-      observer.disconnect()
-      const begin = performance.now()
-      const tick = (now: number) => {
-        const t = Math.min(1, (now - begin) / duration)
-        el.textContent = String(Math.round(to * (1 - Math.pow(1 - t, 3))))
-        if (t < 1) frame = requestAnimationFrame(tick)
-      }
-      frame = requestAnimationFrame(tick)
-    }, { rootMargin: '0px 0px -10% 0px' })
-    observer.observe(el)
-    return () => { observer.disconnect(); cancelAnimationFrame(frame) }
-  }, [to, duration])
-  return <span ref={node} className="count-up">{to}</span>
 }
