@@ -12,7 +12,7 @@ export function TaskEdit() {
   const [fields, setFields] = useState<Fields>({} as Fields); const [busy, setBusy] = useState<'' | 'save' | 'confirm'>(''); const [submitError, setSubmitError] = useState('')
   useEffect(() => { if (task) setFields(task.fields) }, [task])
   async function save() { setBusy('save'); setSubmitError(''); try { const updated = await api<Task>(`/tasks/${id}/fields`, json('PUT', { fields })); setTask(updated); toast.success('Дополнения сохранены. Предварительный рейтинг пересчитан.'); return true } catch (err) { setSubmitError(errorText(err)); return false } finally { setBusy('') } }
-  async function confirm() { setBusy('confirm'); setSubmitError(''); try { await api<Task>(`/tasks/${id}/fields`, json('PUT', { fields })); await api<Task>(`/tasks/${id}/confirm`, json('POST')); toast.success('Задача опубликована и появилась в каталоге.'); navigate(`/task/${id}`) } catch (err) { setSubmitError(errorText(err)) } finally { setBusy('') } }
+  async function publish() { setBusy('confirm'); setSubmitError(''); try { await api<Task>(`/tasks/${id}/fields`, json('PUT', { fields })); await api<Task>(`/tasks/${id}/confirm`, json('POST')); toast.success('Задача опубликована и появилась в каталоге.'); navigate(`/task/${id}`) } catch (err) { setSubmitError(errorText(err)) } finally { setBusy('') } }
   if (loading) return <Loading />; if (error || !task) return <PageError message={error || 'Задача не найдена.'} />
   return <div className="container flow-page edit-page">
     <div className="flow-head"><p className="eyebrow">Для бизнеса · шаг 3 из 3</p><h1>Проверьте карточку и рейтинг</h1><p className="lead">Все поля можно изменить. Сохраните дополнения, чтобы увидеть новый предварительный балл, затем подтвердите публикацию.</p></div>
@@ -27,7 +27,7 @@ export function TaskEdit() {
         </Field>)}
         <div className="form-actions">
           <Button type="submit" variant="secondary" loading={busy === 'save'} disabled={busy === 'confirm'}>Сохранить и пересчитать</Button>
-          <Button variant="primary" loading={busy === 'confirm'} disabled={busy === 'save'} onClick={() => void confirm()}>{busy === 'confirm' ? 'Публикуем…' : 'Подтвердить и опубликовать →'}</Button>
+          <Button variant="primary" loading={busy === 'confirm'} disabled={busy === 'save'} onClick={() => void publish()}>{busy === 'confirm' ? 'Публикуем…' : 'Подтвердить и опубликовать →'}</Button>
         </div>
         <p className="field-help">Задача появится в каталоге только после вашего подтверждения.</p>
       </form>

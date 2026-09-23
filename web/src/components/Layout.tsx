@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import type { Mode } from '../fields'
 import { useTeamSession } from '../session'
-import { Segmented } from '../ui'
+import { Logo, Segmented } from '../ui'
 
 export function ScrollToTop() { const { pathname } = useLocation(); useEffect(() => { window.scrollTo(0, 0) }, [pathname]); return null }
 
@@ -17,7 +17,7 @@ export function Layout({ mode, setMode, children }: { mode: Mode; setMode: (mode
   return <>
     <a className="skip-link" href="#main">Перейти к содержимому</a>
     <header className="site-header"><div className="header-inner">
-      <Link className="brand" to="/" aria-label="Archibalt — каталог задач"><span className="brand-mark" aria-hidden="true">A<span>↗</span></span><span>archibalt<small>AI Sana Challenge Hub</small></span></Link>
+      <Link className="brand" to="/" aria-label="Archibalt — каталог задач"><Logo /></Link>
       <nav className="main-nav" aria-label="Основная навигация"><NavLink to="/" end>Каталог задач</NavLink><NavLink to="/task/new">Создать задачу</NavLink><NavLink to="/teams">Команды</NavLink><NavLink to="/ai">Как работает AI</NavLink></nav>
       <div className="header-role">
         {mode === 'team' && session && <span className="header-team" title="Вы вошли как команда">{session.team.name}</span>}
