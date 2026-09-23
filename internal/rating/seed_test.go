@@ -29,7 +29,7 @@ func TestRealSeedScoresAndLevels(t *testing.T) {
 	}{
 		1: {30, model.LevelDraft},
 		2: {60, model.LevelWorking},
-		3: {80, model.LevelReady},
+		3: {70, model.LevelReady}, // «доступны…» без срока передачи = половина за данные (кейс B из QA)
 		4: {90, model.LevelPriority},
 		5: {42, model.LevelWorking},
 	}
