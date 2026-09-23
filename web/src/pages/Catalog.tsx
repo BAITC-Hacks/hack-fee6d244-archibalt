@@ -1,8 +1,8 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { CatalogResponse } from '../api'
 import { capitalize, plural, readDraft, saveDraft, type Mode } from '../fields'
-import { DRAFT_PLACEHOLDER } from './TaskNew'
+import { DRAFT_PLACEHOLDER, DraftHint } from './TaskNew'
 import { BeforeAfter } from '../components/BeforeAfter'
 import { Alert, Badge, Button, EmptyState, Field, Select, Spinner, Textarea, levelLabels, type LevelKind } from '../ui'
 import { useLoad } from '../useLoad'
@@ -10,6 +10,8 @@ import { useLoad } from '../useLoad'
 export function Catalog({ setMode }: { setMode: (mode: Mode) => void }) {
   const [params, setParams] = useSearchParams(); const navigate = useNavigate()
   const [draft, setDraft] = useState(() => readDraft().text)
+  const [saved, setSaved] = useState(false)
+  useEffect(() => { const timer = window.setTimeout(() => { if (draft !== readDraft().text) { saveDraft(draft, readDraft().industry); setSaved(Boolean(draft)) } }, 400); return () => window.clearTimeout(timer) }, [draft])
   function startDraft(event: FormEvent) { event.preventDefault(); setMode('business'); saveDraft(draft, readDraft().industry); navigate('/task/new', { state: { draft } }) }
   const industry = params.get('industry') || ''; const level = params.get('level') || ''
   const query = new URLSearchParams(); if (industry) query.set('industry', industry); if (level) query.set('level', level)
@@ -25,7 +27,8 @@ export function Catalog({ setMode }: { setMode: (mode: Mode) => void }) {
         <p className="lead">AI задаёт вопросы и не выдумывает факты. Вы видите оценку готовности 0–100 и что добавить, студенты предлагают решения, команду выбираете вы.</p>
         <form className="hero-draft" onSubmit={startDraft}>
           <label className="hero-draft-label" htmlFor="hero-draft">Опишите задачу своими словами</label>
-          <Textarea id="hero-draft" minRows={3} value={draft} onChange={event => setDraft(event.target.value)} placeholder={DRAFT_PLACEHOLDER} />
+          <Textarea id="hero-draft" minRows={3} value={draft} onChange={event => setDraft(event.target.value)} placeholder={DRAFT_PLACEHOLDER} aria-describedby="hero-draft-hint" />
+          <span id="hero-draft-hint" className="ui-field-hint"><DraftHint saved={saved} /></span>
           <div className="hero-draft-foot">
             <span>3 вопроса → карточка с оценкой готовности → отклики команд · около 3 минут</span>
             <Button type="submit" variant="primary" size="lg">Описать задачу →</Button>
