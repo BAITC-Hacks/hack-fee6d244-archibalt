@@ -113,7 +113,7 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
         <AnimatedBackground intensity="soft" />
         <div><h2>Первая задача — за три минуты</h2><p>Опишите проблему, ответьте на вопросы и посмотрите, какой балл получит карточка.</p></div>
         <div className="final-cta-actions">
-          <ButtonLink variant="primary" size="lg" to="/task/new" onClick={() => setMode('business')}>Обсудить задачу</ButtonLink>
+          <Button variant="primary" size="lg" aria-haspopup="dialog" onClick={discuss}>Обсудить задачу</Button>
           <Link className="text-link" to="/catalog">Смотреть каталог</Link>
         </div>
       </div>

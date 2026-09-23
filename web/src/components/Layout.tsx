@@ -4,6 +4,7 @@ import type { Mode } from '../fields'
 import { maskContact, useSession } from '../session'
 import { Logo, Segmented, useToast } from '../ui'
 import { SessionMenu } from './SessionMenu'
+import { useStartChat } from '../pages/TaskNew'
 
 export function ScrollToTop() { const { pathname, hash } = useLocation(); useEffect(() => { if (!hash) window.scrollTo(0, 0) }, [pathname, hash]); return null }
 
@@ -41,6 +42,7 @@ function useActiveAnchor(enabled: boolean) {
 
 export function Layout({ mode, setMode, children }: { mode: Mode; setMode: (mode: Mode) => void; children: ReactNode }) {
   const { team, business, checking, requestLogin, logout } = useSession()
+  const startChat = useStartChat()
   const navigate = useNavigate(); const toast = useToast(); const { pathname } = useLocation()
   const landing = pathname === '/'
   const glass = useGlass(landing)
@@ -69,7 +71,7 @@ export function Layout({ mode, setMode, children }: { mode: Mode; setMode: (mode
             { label: 'Выйти', onSelect: () => void logout('team').then(() => toast.show('Вы вышли из команды')) },
           ]} />}
           <div className="capsule-mode"><Segmented label="Режим просмотра" value={mode} options={modes} onChange={changeMode} /></div>
-          <Link className="cta-pill" to="/task/new" onClick={() => setMode('business')}>Обсудить задачу <span aria-hidden="true">→</span></Link>
+          <button type="button" className="cta-pill" style={{ border: 0 }} aria-haspopup="dialog" onClick={() => { setMode('business'); setMenu(false); startChat() }}>Обсудить задачу <span aria-hidden="true">→</span></button>
           <button type="button" className="capsule-burger" aria-expanded={menu} aria-controls="capsule-panel" aria-label={menu ? 'Закрыть меню' : 'Открыть меню'} onClick={() => setMenu(value => !value)}><span /><span /></button>
         </div>
       </div>

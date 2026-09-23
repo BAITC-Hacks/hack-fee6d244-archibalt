@@ -77,7 +77,13 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
     setPending(true)
     try { await action(token.current) }
     catch (err) {
-      if (err instanceof ApiError && err.status === 401) push({ kind: 'agent', text: explain(err, 'business', fresh => { token.current = fresh; void run(action) }) })
+      if (err instanceof ApiError && err.status === 401) {
+        const messageId = nextId.current
+        push({ kind: 'error', text: explain(err, 'business', fresh => {
+          patch(messageId, msg => ({ ...msg, resolved: true }) as Msg)
+          token.current = fresh; void run(action)
+        }), retry: () => void run(action) })
+      }
       else push({ kind: 'error', text: 'Не получилось получить ответ. Повторить?', detail: err instanceof ApiError ? errorText(err) : undefined, retry: () => void run(action) })
     } finally { setPending(false) }
   }
@@ -370,7 +376,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
           </div>
           <form className="agent-composer" onSubmit={submit}>
             <Textarea ref={input} minRows={1} value={text} aria-label="Ваш ответ" placeholder={placeholder}
-              onChange={event => setText(event.target.value)}
+              onChange={event => { setText(event.target.value); if (intro && !('taskId' in start)) saveDraft(event.target.value, start.industry) }}
               onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit() } }} />
             <div className="agent-composer-row">
               <Button variant="ghost" size="sm" disabled={!active} onClick={() => answer('')}>
@@ -400,7 +406,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
       </div>
     </div>
     <ConfirmDialog open={confirm} title="Закрыть диалог?" confirmLabel="Закрыть" cancelLabel="Продолжить" onCancel={() => setConfirm(false)}
-      onConfirm={() => { setConfirm(false); onClose(); navigate('/business') }}>
+      onConfirm={() => { setConfirm(false); onClose() }}>
       <p className="agent-confirm">Ответы сохранены, можно вернуться позже. Задача останется в разделе «Мои задачи».</p>
     </ConfirmDialog>
   </div>, document.body)

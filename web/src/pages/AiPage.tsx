@@ -1,14 +1,16 @@
 import type { AiInfo, FieldKey } from '../api'
 import { PageError } from '../components/PageState'
 import { fieldSpecs } from '../fields'
-import { Alert, ButtonLink, EmptyState, Loading } from '../ui'
+import { Alert, Button, EmptyState, Loading } from '../ui'
 import { useLoad } from '../useLoad'
+import { useStartChat } from './TaskNew'
 
 const labelOf = (key: string) => fieldSpecs.find(spec => spec.key === key)?.label ?? key
 const when = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
 
 /** «Как работает AI»: живой последний вызов (вход → вопросы → карточка → что убрала проверка), промпты свёрнуты. */
 export function AiPage() {
+  const startChat = useStartChat()
   const { data, loading, error } = useLoad<AiInfo | null>('/ai', null)
   if (loading) return <Loading />; if (error || !data) return <PageError message={error || 'Сведения об AI сейчас недоступны. Обновите страницу через минуту.'} />
   const call = data.last_call
@@ -39,7 +41,7 @@ export function AiPage() {
           <p>{removed.size ? `Убрано полей: ${removed.size} (${[...removed].map(labelOf).join(', ')}). Остальное подтверждено текстом заявителя.` : 'Проверка ничего не убрала: все поля карточки опираются на текст заявителя.'}</p>
         </div></li>
       </ol>
-    </section> : <EmptyState title="Вызовов пока не было" action={<ButtonLink variant="primary" to="/task/new">Обсудить задачу</ButtonLink>}>После запуска сервера AI ещё не собирал карточку. Опишите задачу и ответьте на вопросы — здесь появится её путь.</EmptyState>}
+    </section> : <EmptyState title="Вызовов пока не было" action={<Button variant="primary" aria-haspopup="dialog" onClick={() => startChat()}>Обсудить задачу</Button>}>После запуска сервера AI ещё не собирал карточку. Опишите задачу и ответьте на вопросы — здесь появится её путь.</EmptyState>}
 
     <section className="ai-prompts">
       <h2>Промпты и формат ответа</h2>
