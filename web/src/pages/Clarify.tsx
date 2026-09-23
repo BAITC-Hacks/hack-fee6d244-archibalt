@@ -1,20 +1,24 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, json, withAuth, type Task } from '../api'
+import { useAgentChat } from '../components/AgentChat'
 import { PageError } from '../components/PageState'
 import { ratingKey } from '../fields'
 import { useSession } from '../session'
 import type { FieldKey } from '../api'
-import { Alert, Button, Field, Loading, Meter, Textarea } from '../ui'
+import { Alert, Button, EmptyState, Field, Loading, Meter, Textarea } from '../ui'
 import { useLoad } from '../useLoad'
 
+/** Запасной экран батч-вопросов для старых задач; задачи с пошаговыми вопросами продолжаются в диалоге с агентом. */
 export function Clarify() {
-  const { id } = useParams(); const navigate = useNavigate(); const { business, explain } = useSession()
+  const { id } = useParams(); const navigate = useNavigate(); const { business, explain } = useSession(); const { openAgentChat } = useAgentChat()
   const { data: task, loading, error } = useLoad<Task>(`/tasks/${id}`, null as unknown as Task)
   const [answers, setAnswers] = useState<Record<string, string>>({}); const [step, setStep] = useState(0); const [busy, setBusy] = useState(false); const [submitError, setSubmitError] = useState('')
   const field = useRef<HTMLTextAreaElement>(null)
   useEffect(() => { if (task) setAnswers(Object.fromEntries(task.questions.map(q => [String(q.id), q.answer || '']))) }, [task])
   useEffect(() => { field.current?.focus({ preventScroll: true }) }, [step])
+  const dynamic = Boolean(task?.questions?.some(q => 'input_type' in q && q.input_type))
+  useEffect(() => { if (dynamic && task) openAgentChat({ taskId: task.id }) }, [dynamic, task, openAgentChat])
 
   async function send(token = business?.token) {
     setBusy(true); setSubmitError('')
@@ -22,6 +26,7 @@ export function Clarify() {
     catch (err) { setSubmitError(explain(err, 'business', fresh => void send(fresh))) } finally { setBusy(false) }
   }
   if (loading) return <Loading />; if (error || !task) return <PageError message={error || 'Задача не найдена.'} />
+  if (dynamic) return <div className="container flow-page"><EmptyState title="Задача уточняется в диалоге с агентом" action={<Button variant="primary" onClick={() => openAgentChat({ taskId: task.id })}>Открыть диалог</Button>}>Ответы сохранены: продолжите с того вопроса, на котором остановились.</EmptyState></div>
 
   const total = task.questions.length
   const review = step >= total

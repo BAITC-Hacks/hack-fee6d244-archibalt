@@ -54,7 +54,8 @@ export function sessionFromTask(task: Task): ChatSession {
   const questions = task.questions as AgentQuestion[]
   const card = { ...emptyCard(), ...task.fields }
   if (!card.context) card.context = task.draft_text
-  if (questions.some(q => q.input_type)) {
+  // input_type может не прийти (omitempty) — пошаговый режим узнаём и по одному вопросу: батч всегда присылает ≥ 3.
+  if (questions.length <= 1 || questions.some(q => q.input_type)) {
     // Открыт последний вопрос без ответа; пропущенные раньше тоже пустые, но за ними уже есть следующий.
     const last = questions[questions.length - 1]
     const open = last && !last.answer ? last : undefined

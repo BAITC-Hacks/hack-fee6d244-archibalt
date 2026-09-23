@@ -19,6 +19,8 @@ type Client interface {
 	// NextQuestion — пошаговый режим: следующий вопрос с учётом уже заданных (asked, с ответами)
 	// или Done. Не меньше MinDynamicQuestions и не больше MaxDynamicQuestions вопросов.
 	NextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error)
+	// ResultOptions — 2–3 варианта первого проверяемого результата (малый → средний) по черновику и ответам qs.
+	ResultOptions(ctx context.Context, draft, industry string, qs []model.Question) (model.ResultOptionsResult, error)
 	// Mode — режим, фактически использованный в последнем вызове.
 	Mode() model.AIMode
 	// Info — данные для GET /api/ai.
@@ -31,6 +33,7 @@ type Info struct {
 	PromptQuestions string       `json:"prompt_questions"`
 	PromptCard      string       `json:"prompt_card"`
 	PromptNext      string       `json:"prompt_next_question"`
+	PromptOptions   string       `json:"prompt_result_options"`
 	SchemaExample   string       `json:"schema_example"`
 	LastError       *string      `json:"last_error"`
 	LastCall        *LastCall    `json:"last_call"`
@@ -63,6 +66,7 @@ type backend interface {
 	questions(ctx context.Context, draft, industry string) (model.QuestionsResult, error)
 	card(ctx context.Context, draft, industry string, qs []model.Question) (model.CardResult, error)
 	nextQuestion(ctx context.Context, draft, industry string, asked []model.Question) (model.NextQuestionResult, error)
+	resultOptions(ctx context.Context, draft, industry string, qs []model.Question) (model.ResultOptionsResult, error)
 }
 
 // fallback: primary (openai, может быть nil) → один повтор → backup (mock).
@@ -140,7 +144,7 @@ func (f *fallback) Mode() model.AIMode {
 func (f *fallback) Info() Info {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	info := Info{Mode: f.mode, PromptQuestions: PromptQuestions, PromptCard: PromptCard, PromptNext: PromptNextQuestion, SchemaExample: SchemaExample, LastCall: lastCallCopy()}
+	info := Info{Mode: f.mode, PromptQuestions: PromptQuestions, PromptCard: PromptCard, PromptNext: PromptNextQuestion, PromptOptions: PromptResultOptions, SchemaExample: SchemaExample, LastCall: lastCallCopy()}
 	if f.lastErr != nil {
 		s := f.lastErr.Error()
 		info.LastError = &s

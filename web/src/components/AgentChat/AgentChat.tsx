@@ -2,7 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, ty
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { ApiError, type Fields } from '../../api'
-import { errorText, fieldSpecs, ratingKey, saveDraft } from '../../fields'
+import { capitalize, errorText, fieldSpecs, ratingKey, saveDraft } from '../../fields'
 import { useSession } from '../../session'
 import { AnimatedNumber, Button, ConfirmDialog, LogoMark, Meter, Textarea, useToast } from '../../ui'
 import { cx } from '../../ui/cx'
@@ -22,9 +22,22 @@ type NewMsg = Msg extends infer M ? (M extends Msg ? Omit<M, 'id'> : never) : ne
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
 const MAX_QUESTIONS = 5
 const clip = (text: string, max = 120) => { const clean = text.trim().replace(/\s+/g, ' '); return clean.length > max ? `${clean.slice(0, max).trimEnd()}…` : clean }
+/** Причина от AI бывает со строчной и без точки. */
+const sentence = (text: string) => { const clean = capitalize(text.trim()); return /[.!?…]$/.test(clean) ? clean : `${clean}.` }
 const reducedMotion = () => Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
 /** Варианты ответа по типу вопроса; для «да/нет» без подсказок — стандартная пара. */
-const optionsOf = (q: AgentQuestion) => (q.input_type === 'yes_no' && (q.suggestions?.length ?? 0) < 2 ? ['Да', 'Нет'] : q.suggestions ?? [])
+const optionsOf = (q: AgentQuestion) => {
+  if (q.input_type === 'yes_no') return (q.suggestions?.length ?? 0) >= 2 ? q.suggestions! : ['Да', 'Нет']
+  if (q.suggestions?.length) return q.suggestions
+  const example = splitExample(q.text).example
+  return example && (q.input_type ?? 'text') === 'text' ? [capitalize(example)] : []
+}
+/** «(например: …)» из текста вопроса выносим в подсказку, чтобы вопрос читался коротко. */
+function splitExample(text: string) {
+  const match = text.match(/\s*\((?:например|к примеру|пример)[,:]?\s*([^)]+)\)\s*/i)
+  if (!match) return { question: text, example: '' }
+  return { question: text.replace(match[0], ' ').replace(/\s+([?.!])/g, '$1').trim(), example: match[1].replace(/^[\s"“”«»]+|[\s"“”«»]+$/g, '') }
+}
 
 /** Модалка диалога с агентом: слева лента вопросов с интерактивными ответами, справа живая карточка задачи. */
 export function AgentChat({ start, transport, onClose }: { start: AgentChatStart; transport: Transport; onClose: () => void }) {
@@ -72,7 +85,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
     if (!options.first && changed.length) setFlash(current => ({ ...current, ...Object.fromEntries(changed.map(key => [key, (current[key] || 0) + 1])) }))
     askedRef.current = step.asked
     if (step.question && !step.done) { setMulti([]); push({ kind: 'question', q: step.question, state: 'open' }) }
-    else push({ kind: 'final', reason: options.reason || step.reason || 'Основное уже есть. Можно собирать карточку.', canMore: !options.reason && step.asked < MAX_QUESTIONS && session.current?.mode !== 'legacy' })
+    else push({ kind: 'final', reason: sentence(options.reason || step.reason || 'Основное уже есть. Можно собирать карточку.'), canMore: !options.reason && step.asked < MAX_QUESTIONS && session.current?.mode !== 'legacy' })
   }
 
   // Старт: новый диалог по черновику или продолжение задачи. Ref защищает от двойного эффекта StrictMode.
@@ -177,6 +190,9 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
 
   // Новый вопрос — фокус в поле ввода; новое сообщение — плавная прокрутка к концу ленты.
   useEffect(() => { if (active) input.current?.focus({ preventScroll: true }) }, [active?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Финал — фокус на «Собрать карточку», чтобы с клавиатуры не искать кнопку.
+  const lastMsg = msgs[msgs.length - 1]
+  useEffect(() => { if (lastMsg?.kind === 'final' && !lastMsg.closed) feed.current?.querySelector<HTMLButtonElement>('.agent-final-main')?.focus({ preventScroll: true }) }, [lastMsg])
   useLayoutEffect(() => { feed.current?.scrollTo({ top: feed.current.scrollHeight, behavior: reducedMotion() ? 'auto' : 'smooth' }) }, [msgs.length, pending])
 
   function chipKeys(event: KeyboardEvent<HTMLElement>) {
@@ -200,7 +216,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
       else answer(option, [option])
     }
     return <div className="agent-bubble agent-bubble-agent">
-      <p>{q.text}</p>
+      <p>{splitExample(q.text).question}</p>
       {options.length > 0 && <div className={cx('agent-options', type === 'yes_no' && 'agent-options-yn')} role="group" aria-label={type === 'text' ? 'Подсказки: подставить в поле' : 'Варианты ответа'} onKeyDown={chipKeys}>
         {options.map(option => <button key={option} type="button" className="ui-chip agent-chip" aria-pressed={pressed(option)} disabled={!open} onClick={() => pick(option)}>{option}</button>)}
       </div>}
@@ -222,7 +238,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
     if (msg.kind === 'final') return <div className="agent-bubble agent-bubble-agent">
       <p>{msg.reason}</p>
       <div className="agent-actions">
-        <Button variant="primary" loading={building && !msg.closed} disabled={msg.closed || (pending && !building)} onClick={() => build(msg)}>{building ? 'Собираю карточку…' : 'Собрать карточку'}</Button>
+        <Button variant="primary" className="agent-final-main" loading={building && !msg.closed} disabled={msg.closed || (pending && !building)} onClick={() => build(msg)}>{building ? 'Собираю карточку…' : 'Собрать карточку'}</Button>
         {msg.canMore && <Button variant="secondary" disabled={msg.closed || pending} onClick={() => askMore(msg)}>Спросить ещё</Button>}
       </div>
     </div>

@@ -217,3 +217,17 @@ type NextQuestionResult struct {
 	Reason        string     `json:"reason"`
 	MissingFields []FieldKey `json:"missing_fields"`
 }
+
+// ResultOption — вариант первого проверяемого результата для студенческой команды (предложение AI, не факт о бизнесе).
+type ResultOption struct {
+	Title  string `json:"title"`  // 3–6 слов
+	Result string `json:"result"` // что команда передаст, 1–2 предложения → expected_result
+	Check  string `json:"check"`  // как бизнес проверит готовность → success_criteria
+	Needs  string `json:"needs"`  // что нужно от бизнеса: данные, доступы, время
+	Weeks  int    `json:"weeks"`  // оценка срока, 2–8 недель
+}
+
+// ResultOptionsResult — ответ AI: 2–3 варианта от малого к среднему.
+type ResultOptionsResult struct {
+	Options []ResultOption `json:"options"`
+}

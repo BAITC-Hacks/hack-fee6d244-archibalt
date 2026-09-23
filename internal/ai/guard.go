@@ -23,6 +23,24 @@ const guardThreshold = 0.6
 //
 // Пустой title заполняет finishCard.
 func Guard(fields model.Fields, sourceText string) model.Fields {
+	src := sourceIndex(sourceText)
+	srcPol := polarity(sourceText)
+	out := fields.Full()
+	for _, k := range model.FieldKeys {
+		v := strings.TrimSpace(out[k])
+		out[k] = v
+		// context и need — пересказ черновика: «не видна картина» → «дать видеть картину» это не смена смысла,
+		// поэтому проверку полярности к ним не применяем (человек подтверждает карточку).
+		flip := k != model.FieldContext && k != model.FieldNeed && polarityFlipped(polarity(v), srcPol)
+		if v != "" && (!supported(v, src) || inventedName(v, src) || flip) {
+			out[k] = ""
+		}
+	}
+	return out
+}
+
+// sourceIndex — слова источника, их стемы и префиксы, пары «число + сосед» (см. numPair).
+func sourceIndex(sourceText string) map[string]bool {
 	src := map[string]bool{}
 	ts := tokens(sourceText)
 	for i, t := range ts {
@@ -41,19 +59,7 @@ func Guard(fields model.Fields, sourceText string) model.Fields {
 			}
 		}
 	}
-	srcPol := polarity(sourceText)
-	out := fields.Full()
-	for _, k := range model.FieldKeys {
-		v := strings.TrimSpace(out[k])
-		out[k] = v
-		// context и need — пересказ черновика: «не видна картина» → «дать видеть картину» это не смена смысла,
-		// поэтому проверку полярности к ним не применяем (человек подтверждает карточку).
-		flip := k != model.FieldContext && k != model.FieldNeed && polarityFlipped(polarity(v), srcPol)
-		if v != "" && (!supported(v, src) || inventedName(v, src) || flip) {
-			out[k] = ""
-		}
-	}
-	return out
+	return src
 }
 
 // numPair — ключ «число + следующее слово (стем)»; для числа в конце текста —

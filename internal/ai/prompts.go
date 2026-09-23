@@ -182,3 +182,38 @@ func nextQuestionUserMessage(draft, industry string, asked []model.Question) str
 	}
 	return b.String()
 }
+
+// PromptResultOptions — системный промпт вариантов первого проверяемого результата (показывается на /api/ai).
+const PromptResultOptions = `Ты помогаешь бизнесу выбрать первый посильный результат для студенческой команды. ` +
+	`По черновику и ответам предложи 2–3 РАЗНЫХ по объёму варианта первого результата: от малого к среднему. ` +
+	`Каждый вариант проверяемый: бизнес сам может убедиться, что результат готов. Поля варианта: ` +
+	`title — название из 3–6 слов; result — что именно команда передаст бизнесу, 1–2 предложения; ` +
+	`check — как бизнес проверит готовность: наблюдаемое действие или измеримый признак, без выдуманных цифр; ` +
+	`needs — что нужно от бизнеса: данные, доступы, время людей; если чего-то пользователь не называл — так и напиши, что это нужно уточнить; ` +
+	`weeks — оценка срока в неделях, целое от 2 до 8. ` +
+	`Ссылайся только на сущности, данные и процессы, которые назвал пользователь. Не придумывай цифр, систем, программ, названий компаний и людей; ` +
+	`не утверждай, что бизнес уже дал доступ или согласовал сроки. Срок пиши только в weeks, не в тексте. ` +
+	`Пиши простыми словами, без терминов. Отвечай JSON по схеме.`
+
+func resultOptionsSchema() map[string]any {
+	str := map[string]any{"type": "string"}
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"options": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"title": str, "result": str, "check": str, "needs": str,
+						"weeks": map[string]any{"type": "integer"},
+					},
+					"required":             []string{"title", "result", "check", "needs", "weeks"},
+					"additionalProperties": false,
+				},
+			},
+		},
+		"required":             []string{"options"},
+		"additionalProperties": false,
+	}
+}
