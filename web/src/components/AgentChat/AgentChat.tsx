@@ -352,19 +352,21 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
   }
 
   const skipGain = active ? gainOf(active.q) : undefined
-  const placeholder = intro ? 'Например: языковой центр, заявки теряются в WhatsApp' : !active ? (pending ? 'Агент думает…' : 'Вопросов сейчас нет') : active.q.input_type === 'multi' ? 'Своё, если нет в списке' : active.q.input_type === 'choice' || active.q.input_type === 'yes_no' ? 'Или ответьте своими словами' : 'Коротко, своими словами'
+  const placeholder = intro ? 'Расскажите о бизнесе и задаче…' : !active ? (pending ? 'Агент думает…' : 'Выберите следующий шаг в чате') : active.q.input_type === 'multi' ? 'Своё, если нет в списке' : active.q.input_type === 'choice' || active.q.input_type === 'yes_no' ? 'Или ответьте своими словами' : 'Коротко, своими словами'
   const filled = fieldSpecs.filter(spec => card[spec.key]?.trim()).length
 
   return createPortal(<div className="agent-overlay" onMouseDown={event => { if (event.target === event.currentTarget) requestClose() }}>
     <div ref={panel} className="agent-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descId} tabIndex={-1}>
       <header className="agent-head">
         <span className="agent-avatar agent-avatar-lg"><LogoMark size={22} /></span>
-        <div><h2 id={titleId}>Уточняем задачу</h2><p id={descId}>Отвечайте коротко. Чего нет — пропускайте: агент не придумывает факты.</p></div>
+        <div><h2 id={titleId}>Обсудить задачу</h2><p id={descId}>AI-помощник · от идеи к понятному ТЗ</p></div>
+        <button type="button" className="agent-card-toggle" aria-expanded={cardOpen} aria-controls={cardId} onClick={() => setCardOpen(value => !value)}>Карточка <span>{filled}/{fieldSpecs.length}</span></button>
         <button type="button" className="ui-modal-close" aria-label="Закрыть" onClick={requestClose}><CloseIcon /></button>
       </header>
-      <div className="agent-body">
+      <div className={cx('agent-body', cardOpen && 'is-card-open', intro && 'is-intro')}>
         <section className="agent-chat" aria-label="Диалог с агентом">
           <div ref={feed} className="agent-feed" role="log" aria-live="polite" aria-relevant="additions">
+            {intro && <div className="agent-welcome"><span className="agent-welcome-mark"><LogoMark size={32} /></span><h3>Давайте разберём<br />вашу задачу</h3></div>}
             {msgs.map(msg => <div key={msg.id} className={cx('agent-msg', msg.kind === 'user' ? 'agent-msg-user' : 'agent-msg-agent')}>
               {msg.kind !== 'user' && <span className="agent-avatar" aria-hidden="true"><LogoMark size={18} /></span>}
               {renderMsg(msg)}
@@ -379,21 +381,21 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
               onChange={event => { setText(event.target.value); if (intro && !('taskId' in start)) saveDraft(event.target.value, start.industry) }}
               onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit() } }} />
             <div className="agent-composer-row">
-              <Button variant="ghost" size="sm" disabled={!active} onClick={() => answer('')}>
+              {!intro && <Button variant="ghost" size="sm" disabled={!active} onClick={() => answer('')}>
                 Пропустить{skipGain ? <span className="agent-cost">−{skipGain} к готовности</span> : null}
-              </Button>
-              <span className="agent-keys" aria-hidden="true">Enter — отправить, Shift+Enter — новая строка</span>
-              <Button type="submit" variant="primary" size="sm" disabled={intro ? !text.trim() : !active || (!text.trim() && !(active.q.input_type === 'multi' && multi.length))}>Отправить</Button>
+              </Button>}
+              {intro && <span className="agent-composer-label">Archibalt AI</span>}
+              <span className="agent-keys" aria-hidden="true">Enter ↵ <span>· Shift + Enter — новая строка</span></span>
+              <Button type="submit" variant="primary" size="sm" className="agent-send" aria-label="Отправить сообщение" title="Отправить сообщение" disabled={intro ? !text.trim() : !active || (!text.trim() && !(active.q.input_type === 'multi' && multi.length))}><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6" /></svg></Button>
             </div>
           </form>
         </section>
-        <aside className={cx('agent-card', cardOpen && 'is-open')} aria-label="Карточка задачи">
+        <aside id={cardId} className="agent-card" aria-label="Карточка задачи" hidden={!cardOpen}>
           <div className="agent-card-head">
-            <h3>Карточка задачи</h3>
+            <h3>Черновик задачи</h3>
             <span className="agent-card-mini"><AnimatedNumber value={score} />/100 · {filled} из {fieldSpecs.length}</span>
-            <button type="button" className="agent-card-toggle" aria-expanded={cardOpen} aria-controls={cardId} onClick={() => setCardOpen(value => !value)}>{cardOpen ? 'Свернуть' : 'Показать'}</button>
           </div>
-          <div className="agent-card-body" id={cardId}>
+          <div className="agent-card-body">
             <Meter value={score} label="Готовность карточки, предварительно" />
             <p className="agent-note">Предварительно. Точную оценку посчитаем, когда соберём карточку.</p>
             <dl className="agent-fields">
