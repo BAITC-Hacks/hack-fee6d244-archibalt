@@ -5,10 +5,12 @@ import { capitalize, plural } from '../fields'
 import { Button, ButtonLink, EmptyState, Input, Loading, Select } from '../ui'
 import { CloseIcon } from '../ui/icons'
 import { useLoad } from '../useLoad'
+import { useStartChat } from './TaskNew'
 import { selectTeams } from './teams-model'
 import './Teams.css'
 
 export function Teams() {
+  const startChat = useStartChat()
   const { data, loading, error } = useLoad<Team[]>('/teams', [])
   const [params, setParams] = useSearchParams()
   const search = params.get('q') || '', interest = params.get('interest') || '', sort = params.get('sort') === 'name' ? 'name' : ''
@@ -81,7 +83,7 @@ export function Teams() {
 
     <div className="teams-bottom-notes">
       <section className="teams-progress-note"><span className="teams-points-mark">+10</span><div><h2>За реальный прогресс</h2><p>Команда получает 10 баллов, когда бизнес подтверждает этап работы. Начать можно и с нуля баллов.</p></div></section>
-      <section className="teams-business-note"><h2>Ищете исполнителей?</h2><p>Опубликуйте задачу, дождитесь откликов и выберите команду по её предложению.</p><ButtonLink to="/task/new" variant="ghost">Описать задачу <span aria-hidden="true">→</span></ButtonLink></section>
+      <section className="teams-business-note"><h2>Ищете исполнителей?</h2><p>Опубликуйте задачу, дождитесь откликов и выберите команду по её предложению.</p><Button variant="ghost" aria-haspopup="dialog" onClick={() => startChat()}>Описать задачу <span aria-hidden="true">→</span></Button></section>
     </div>
   </section>
 }

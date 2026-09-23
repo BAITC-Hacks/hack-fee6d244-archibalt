@@ -6,11 +6,13 @@ import { plural } from '../fields'
 import { useSession } from '../session'
 import { Alert, Badge, Button, ButtonLink, EmptyState, Loading, Spinner } from '../ui'
 import { useLoad } from '../useLoad'
+import { useStartChat } from './TaskNew'
 
 const date = (iso: string) => new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
 
 /** «Мои задачи» заявителя: задачи с местом в каталоге и отклики с решениями. */
 export function MyTasks() {
+  const startChat = useStartChat()
   const { business, checking, requestLogin, explain } = useSession()
   const { data: teams } = useLoad<Team[]>('/teams', [])
   const [tasks, setTasks] = useState<Task[] | null>(null); const [error, setError] = useState(''); const [refreshing, setRefreshing] = useState(false)
@@ -21,7 +23,7 @@ export function MyTasks() {
     try { const me = await api<{ tasks: Task[] }>('/business/me', withToken(token)); setTasks(me.tasks); setError('') }
     catch (err) { setError(explain(err, 'business')) } finally { setRefreshing(false) }
   }, [token, explain])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load() }, [load, business?.taskIds])
 
   if (checking) return <Loading />
   if (!business) return <div className="container flow-page"><EmptyState title="Войдите как заявитель" action={<Button variant="primary" onClick={() => requestLogin('business')}>Войти</Button>}>Здесь собраны ваши задачи и отклики команд на них.</EmptyState></div>
@@ -33,7 +35,7 @@ export function MyTasks() {
       {refreshing && <span className="catalog-refresh-inline" role="status"><Spinner size="sm" /> Обновляем…</span>}
     </div>
     {error && <Alert tone="error">{error}</Alert>}
-    {tasks.length === 0 ? <EmptyState title="У вас пока нет задач" action={<ButtonLink variant="primary" to="/task/new">Обсудить задачу</ButtonLink>}>Опишите первую задачу, и команды смогут предложить решения.</EmptyState>
+    {tasks.length === 0 ? <EmptyState title="У вас пока нет задач" action={<Button variant="primary" aria-haspopup="dialog" onClick={() => startChat()}>Обсудить задачу</Button>}>Опишите первую задачу, и команды смогут предложить решения.</EmptyState>
       : <div className="my-task-list">{tasks.map(task => <section className="detail-card my-task" key={task.id}>
         <div className="my-task-head">
           <div className={`score-tile score-${task.level}`}><strong>{task.score}</strong><span>из 100</span></div>
@@ -47,4 +49,3 @@ export function MyTasks() {
       </section>)}</div>}
   </div>
 }
-

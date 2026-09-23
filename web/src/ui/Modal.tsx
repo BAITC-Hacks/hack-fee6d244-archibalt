@@ -42,7 +42,8 @@ export function Modal({ open, onClose, title, description, children, footer, siz
     document.addEventListener('keydown', onKey)
     return () => {
       document.removeEventListener('keydown', onKey)
-      openCount -= 1; if (openCount <= 0) { openCount = 0; document.body.classList.remove('ui-scroll-lock') }
+      openCount = Math.max(0, openCount - 1)
+      if (!openCount && !document.querySelector('.agent-overlay')) document.body.classList.remove('ui-scroll-lock')
       previous?.focus?.()
     }
   }, [open])
