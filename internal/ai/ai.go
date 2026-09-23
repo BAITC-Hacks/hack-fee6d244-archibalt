@@ -43,9 +43,9 @@ type Info struct {
 // Границы пошагового режима: не меньше Min и не больше Max вопросов.
 const (
 	MinDynamicQuestions = 3
-	MaxDynamicQuestions = 5
-	MaxExtraQuestions   = 8 // потолок по явному запросу «спросить ещё»
-	maxAsksPerField     = 2 // поле без сведений в ответе переспрашивается не больше 2 раз
+	MaxDynamicQuestions = 10
+	MaxExtraQuestions   = 12 // предохранитель от бесконечного разговора по запросу «ещё»
+	maxAsksPerField     = 2  // поле без сведений в ответе переспрашивается не больше 2 раз
 )
 
 const defaultEndpoint = "https://api.openai.com/v1/responses"
@@ -98,8 +98,9 @@ func (f *fallback) Card(ctx context.Context, draft, industry string, qs []model.
 	})
 }
 
-// NextQuestion: при достижении потолка (5, по more — 8) — done без вызова модели; иначе backend + правила finishNext.
+// NextQuestion: завершение по смыслу ответа модели; предел защищает от бесконечного разговора.
 func (f *fallback) NextQuestion(ctx context.Context, draft, industry string, asked []model.Question, more bool) (model.NextQuestionResult, error) {
+	more = more || len(asked) > MaxDynamicQuestions
 	if len(asked) >= questionCap(more) {
 		return finishNext(model.NextQuestionResult{}, asked, draft, more), nil
 	}

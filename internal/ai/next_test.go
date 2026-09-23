@@ -124,13 +124,11 @@ func TestOpenAINextDoneTooEarly(t *testing.T) {
 	if c.Mode() != model.AIModeOpenAI || sys != PromptNextQuestion {
 		t.Fatalf("mode=%s, промпт не тот", c.Mode())
 	}
-	if r.Done || r.Question == nil || r.Question.FieldKey != model.FieldData || r.Question.InputType == "" {
-		t.Fatalf("ожидался вопрос про data: %+v", r)
+	if r.Done || r.Question == nil || r.Question.FieldKey != model.FieldContext || r.Question.InputType == "" {
+		t.Fatalf("ожидалось уточнение частичного контекста: %+v", r)
 	}
-	for _, k := range r.MissingFields {
-		if k == model.FieldContext {
-			t.Error("уже спрошенное поле осталось в missing_fields")
-		}
+	if !slices.Contains(r.MissingFields, model.FieldContext) {
+		t.Error("модель видит пробел в частичном ответе, он должен сохраниться")
 	}
 }
 
@@ -211,7 +209,13 @@ func TestNextQuestionMore(t *testing.T) {
 	}
 	for len(asked) < MaxExtraQuestions {
 		r, _ := c.NextQuestion(context.Background(), weakDraft, "", asked, true)
-		if r.Done || r.Question == nil {
+		if r.Done {
+			if r.Reason == "" || r.Question != nil {
+				t.Fatalf("некорректное завершение: %+v", r)
+			}
+			break // не выдумываем лишние вопросы ради достижения предела
+		}
+		if r.Question == nil {
 			t.Fatalf("more при asked=%d не дал вопрос: %+v", len(asked), r)
 		}
 		r.Question.Answer = "Ответ по делу"

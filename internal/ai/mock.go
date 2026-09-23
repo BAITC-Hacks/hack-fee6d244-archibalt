@@ -148,9 +148,8 @@ func cleanSuggestions(typ model.InputType, in []string) []string {
 	return out
 }
 
-// criticalFields — без них команда не начнёт: пошаговый режим не завершается сам, пока они не закрыты
-// или не переспрошены maxAsksPerField раз.
-var criticalFields = []model.FieldKey{model.FieldData, model.FieldExpectedResult, model.FieldSuccessCriteria, model.FieldContact}
+// Сначала суть проекта и полезный результат; контакт и формат общения дополняются в редакторе.
+var criticalFields = []model.FieldKey{model.FieldContext, model.FieldNeed, model.FieldUsers, model.FieldExpectedResult, model.FieldSuccessCriteria}
 
 // retryTexts — вторая формулировка вопроса, если на первую ответили без сведений («здравствуйте», «не знаю», пропуск).
 var retryTexts = map[model.FieldKey]string{
@@ -166,7 +165,7 @@ var retryTexts = map[model.FieldKey]string{
 	model.FieldInteractionFormat: "Давайте иначе: как вам удобнее — короткий созвон раз в неделю или переписка в чате?",
 }
 
-// questionCap — потолок числа вопросов: 5, по явному запросу «ещё» — 8.
+// questionCap — предохранитель: 10 вопросов, по явному запросу «ещё» — 12.
 func questionCap(more bool) int {
 	if more {
 		return MaxExtraQuestions
@@ -174,12 +173,24 @@ func questionCap(more bool) int {
 	return MaxDynamicQuestions
 }
 
-// fieldState — closed: на поле дан ответ со сведениями (не шум и не пропуск); count — сколько раз поле спрошено.
+// Для диалога отсутствие материалов — ответ. Рейтинг по-прежнему не начисляет за него баллы.
+func hasDialogueAnswer(k model.FieldKey, answer string) bool {
+	if !rating.IsNoise(k, answer) {
+		return true
+	}
+	v := strings.Trim(strings.ToLower(strings.Join(strings.Fields(answer), " ")), " .!?,")
+	if k == model.FieldData {
+		return slices.Contains([]string{"нет", "нет данных", "данных нет", "нет материалов", "материалов нет"}, v)
+	}
+	return k == model.FieldConstraints && slices.Contains([]string{"нет", "ограничений нет", "нет ограничений"}, v)
+}
+
+// fieldState — ответы для диалога и число попыток по каждой теме; модель может указать оставшийся пробел.
 func fieldState(asked []model.Question) (closed map[model.FieldKey]bool, count map[model.FieldKey]int) {
 	closed, count = map[model.FieldKey]bool{}, map[model.FieldKey]int{}
 	for _, q := range asked {
 		count[q.FieldKey]++
-		if !rating.IsNoise(q.FieldKey, q.Answer) {
+		if hasDialogueAnswer(q.FieldKey, q.Answer) {
 			closed[q.FieldKey] = true
 		}
 	}
@@ -223,7 +234,7 @@ func (mockClient) nextQuestion(_ context.Context, draft, _ string, asked []model
 		}
 	}
 	if len(candidates) == 0 && len(asked) >= MinDynamicQuestions && !more {
-		r.Done, r.Reason = true, "ключевые сведения есть или уже уточнены: данные, ожидаемый результат, критерии успеха, контакт"
+		r.Done, r.Reason = true, "обсудили основу задачи; можно сравнить варианты результата, а оставшиеся сведения добавить в карточку"
 		return r, nil
 	}
 	if len(candidates) > 0 {
@@ -232,34 +243,33 @@ func (mockClient) nextQuestion(_ context.Context, draft, _ string, asked []model
 	return r, nil // пусто при < Min или more — finishNext добьёт по padOrder
 }
 
-// finishNext — правила пошагового режима поверх любого backend: валидный ключ; поле, закрытое ответом
-// со сведениями, не спрашивается, а после шума/пропуска — переспрашивается (не больше maxAsksPerField раз);
-// < MinDynamicQuestions — всегда вопрос (done игнорируется); ≥ MaxDynamicQuestions — done;
-// more (явный запрос «ещё») — done модели игнорируется, потолок MaxExtraQuestions.
+// finishNext сохраняет смысловой выбор модели: частичный ответ можно уточнить по missing_fields.
+// Ограничиваем повторы и общее число вопросов, уважаем пропуск, не признаём поле полным по длине текста.
 func finishNext(r model.NextQuestionResult, asked []model.Question, draft string, more bool) model.NextQuestionResult {
 	closed, count := fieldState(asked)
-	// Название не спрашиваем никогда (берётся из черновика); контекст и потребность — только если черновик
-	// совсем короткий: «не переспрашивай известное», цена вопроса высока.
-	closed[model.FieldTitle] = true
-	if len([]rune(strings.TrimSpace(draft))) >= 60 {
-		closed[model.FieldContext] = true
-		closed[model.FieldNeed] = true
+	skipped := map[model.FieldKey]bool{}
+	for _, q := range asked {
+		if strings.TrimSpace(q.Answer) == "" {
+			skipped[q.FieldKey] = true
+			closed[q.FieldKey] = true
+		}
 	}
+	// Название формируется из черновика; остальные темы оцениваются по смыслу, не по длине.
+	closed[model.FieldTitle] = true
 	missing := []model.FieldKey{}
 	for _, k := range r.MissingFields {
-		if validKey(k) && !closed[k] && !slices.Contains(missing, k) {
+		if validKey(k) && k != model.FieldTitle && !slices.Contains(missing, k) {
 			missing = append(missing, k)
+			if !skipped[k] {
+				closed[k] = false // модель видит конкретный пробел даже после непустого ответа
+			}
 		}
 	}
 	r.MissingFields = missing
 	n := len(asked)
 	if n >= questionCap(more) {
 		r.Question, r.Done = nil, true
-		if more {
-			r.Reason = "задано максимальное число вопросов (8), соберите карточку"
-		} else if r.Reason == "" {
-			r.Reason = "ключевых сведений достаточно: можно собирать карточку или спросить ещё"
-		}
+		r.Reason = "соберём промежуточный вариант из того, что обсудили; неясные детали можно дописать в редакторе"
 		return r
 	}
 	if q := r.Question; q != nil {
@@ -281,15 +291,13 @@ func finishNext(r model.NextQuestionResult, asked []model.Question, draft string
 			r.Question = &model.Question{Text: t, FieldKey: q.FieldKey, InputType: typ, Suggestions: sg}
 		}
 	}
-	// Последний ответ без сведений (шум, пропуск) — агент сам уточняет ту же тему другой формулировкой,
-	// даже если модель хотела сменить тему или закончить; после второй неудачи поле остаётся пробелом.
-	if n > 0 {
-		if k := asked[n-1].FieldKey; validKey(k) && askable(k, closed, count) && (r.Question == nil || r.Question.FieldKey != k) {
+	// Если модель не помогла с непонятным ответом, уточняем один раз. Её осмысленный вопрос сохраняем.
+	if n > 0 && r.Question == nil {
+		if k := asked[n-1].FieldKey; validKey(k) && !skipped[k] && !hasDialogueAnswer(k, asked[n-1].Answer) && askable(k, closed, count) {
 			r.Question, r.Done = stockQuestionFor(k, count), false
 		}
 	}
-	// Модель решила закончить, но сама же числит пробелом ключевое поле (данные, результат, критерии, контакт) —
-	// done автоматически только когда ключевые поля закрыты; потолок 5 остаётся.
+	// Не заканчиваем, если модель сама видит пробел в сути проекта или ожидаемой пользе.
 	if r.Done && r.Question == nil && n < MaxDynamicQuestions {
 		for _, k := range criticalFields {
 			if slices.Contains(missing, k) && askable(k, closed, count) {
