@@ -137,7 +137,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
         await apply(s.first, t, { first: true })
       })
     } else {
-      push({ kind: 'agent', text: `Понял: «${clip(start.draftText)}». Задам 3–4 вопроса.` })
+      push({ kind: 'agent', text: `Понял: «${clip(start.draftText)}». Задам 3–5 вопросов.` })
       void run(async t => {
         const s = await transport.start(start, t); session.current = s
         saveDraft('', ''); if (s.mode !== 'mock') void refreshBusiness(t)

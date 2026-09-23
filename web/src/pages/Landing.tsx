@@ -65,13 +65,13 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
       <div className="container landing-hero-grid">
       <div className="landing-hero-copy">
         <h1>Сырой запрос → задача с оценкой <span className="nowrap">0–100</span>. <em>Команды выбирают сами.</em></h1>
-        <p className="lead">AI задаёт 3–4 вопроса и собирает карточку только из ваших слов, ничего не додумывая, — каждую строку вы проверяете и подтверждаете сами. Оценка объясняет, что добавить, а задача попадает в открытый каталог, где студенческие команды откликаются сами.</p>
+        <p className="lead">AI задаёт 3–5 вопросов и собирает карточку только из ваших слов, ничего не додумывая, — каждую строку вы проверяете и подтверждаете сами. Оценка объясняет, что добавить, а задача попадает в открытый каталог, где студенческие команды откликаются сами.</p>
         <form className="hero-input" onSubmit={submit}>
           <Textarea aria-label="Опишите задачу своими словами" minRows={3} value={draft} onChange={event => setDraft(event.target.value)}
             onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit() }} placeholder={DRAFT_PLACEHOLDER} />
           <button type="submit" className={`ui-btn ui-btn-primary hero-send${ready ? ' is-ready' : ''}`} tabIndex={ready ? 0 : -1} aria-hidden={!ready}>Отправить →</button>
         </form>
-        <p className="hero-micro">AI задаст 3–4 вопроса и соберёт карточку. Ничего не придумает.</p>
+        <p className="hero-micro">AI задаст 3–5 вопросов и соберёт карточку. Ничего не придумает.</p>
         <div className="hero-secondary">
           <Link className="text-link" to="/catalog" onClick={() => setMode('team')}>Смотреть каталог задач</Link>
         </div>

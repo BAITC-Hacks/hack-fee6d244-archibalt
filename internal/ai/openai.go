@@ -194,7 +194,25 @@ func (c *openAIClient) nextQuestion(ctx context.Context, draft, industry string,
 	r := model.NextQuestionResult{Done: res.Done, Reason: strings.TrimSpace(res.Reason), MissingFields: res.MissingFields}
 	if res.Question != nil {
 		q := res.Question
-		r.Question = &model.Question{Text: q.Text, FieldKey: q.FieldKey, InputType: q.InputType, Suggestions: q.Suggestions}
+		r.Question = &model.Question{Text: q.Text, FieldKey: q.FieldKey, InputType: q.InputType, Suggestions: guardSuggestions(q.Suggestions, sourceText(draft, industry, asked))}
 	}
 	return r, nil // валидация и правила 3..5 — в finishNext
+}
+
+// guardSuggestions — подсказки-кнопки становятся ответом пользователя и обходят Guard, поэтому
+// проверяются заранее: выкидываем варианты с числами, именами собственными и email, которых нет в источнике.
+func guardSuggestions(in []string, source string) []string {
+	src := sourceIndex(source)
+	low := strings.ToLower(source)
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if inventedName(s, src) || inventedNumber(s, src) {
+			continue
+		}
+		if i := strings.Index(s, "@"); i >= 0 && !strings.Contains(low, strings.ToLower(strings.Fields(s[max(0, i-30):])[0])) {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
