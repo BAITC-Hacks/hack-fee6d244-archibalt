@@ -1,0 +1,17 @@
+#!/bin/bash
+# Локальный dev-стенд с горячей перезагрузкой: Go API на :8080 (перезапуск при изменении *.go), Vite с HMR на :5173.
+# ponytail: поллинг mtime раз в 2 с вместо fswatch/air — ноль зависимостей. Postgres — docker compose up -d db.
+cd "$(dirname "$0")"
+set -a; [ -f .env ] && . ./.env; set +a
+export DATABASE_URL="${DATABASE_URL:-postgres://postgres:hack@localhost:5432/hack?sslmode=disable}"
+export PORT="${PORT:-8080}" STATIC_DIR=/nonexistent
+docker compose up -d db >/dev/null 2>&1
+LOG=.agents/dev-go.log; mkdir -p .agents
+sig() { find cmd internal db go.mod go.sum -type f \( -name '*.go' -o -name '*.sql' -o -name 'go.*' \) -newer .agents/.dev-stamp 2>/dev/null | head -1; }
+start() { go build -o .agents/dev-server ./cmd/server 2>>"$LOG" || { echo "[dev] build failed, см. $LOG"; return; }; touch .agents/.dev-stamp; .agents/dev-server >>"$LOG" 2>&1 & GO_PID=$!; echo "[dev] Go API :$PORT pid $GO_PID"; }
+stop() { [ -n "$GO_PID" ] && kill "$GO_PID" 2>/dev/null; wait "$GO_PID" 2>/dev/null; }
+trap 'stop; kill $VITE_PID 2>/dev/null; exit 0' INT TERM
+touch -t 200001010000 .agents/.dev-stamp; start
+( cd web && npm run dev -- --port 5173 >>../.agents/dev-vite.log 2>&1 ) & VITE_PID=$!
+echo "[dev] Vite :5173 (HMR) → открой http://localhost:5173 ; логи .agents/dev-*.log"
+while true; do sleep 2; if [ -n "$(sig)" ]; then echo "[dev] изменения в Go — пересборка"; stop; start; fi; done
