@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import type { CatalogResponse } from '../api'
 import { AnimatedBackground } from '../components/AnimatedBackground'
 import { useExample } from '../components/BeforeAfter'
@@ -8,7 +8,7 @@ import { Reveal } from '../components/Reveal'
 import { capitalize, plural, readDraft, saveDraft, type Mode } from '../fields'
 import { ButtonLink, Textarea } from '../ui'
 import { useLoad } from '../useLoad'
-import { DRAFT_PLACEHOLDER } from './TaskNew'
+import { DRAFT_PLACEHOLDER, useStartChat } from './TaskNew'
 
 const MIN_DRAFT = 10
 
@@ -32,7 +32,7 @@ const FAQ = [
 
 /** Главная: одно поле для задачи, пример «до/после», как работает, сравнение, FAQ. */
 export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
-  const navigate = useNavigate()
+  const startChat = useStartChat()
   const [draft, setDraft] = useState(() => readDraft().text)
   const ready = draft.trim().length >= MIN_DRAFT
   const { data: catalog } = useLoad<CatalogResponse>('/tasks', { tasks: [], industries: [], levels: [] })
@@ -48,8 +48,8 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
   function submit(event?: FormEvent) {
     event?.preventDefault()
     if (!ready) return
-    setMode('business'); saveDraft(draft, readDraft().industry)
-    navigate('/task/new', { state: { draft } })
+    setMode('business')
+    startChat(draft)
   }
 
   const rankNow = example.task?.rank || catalog.tasks.findIndex(task => task.id === 1) + 1 || undefined
