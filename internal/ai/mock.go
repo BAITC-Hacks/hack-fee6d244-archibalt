@@ -258,7 +258,7 @@ func finishNext(r model.NextQuestionResult, asked []model.Question, draft string
 		if more {
 			r.Reason = "задано максимальное число вопросов (8), соберите карточку"
 		} else if r.Reason == "" {
-			r.Reason = "задано максимальное число вопросов"
+			r.Reason = "ключевых сведений достаточно: можно собирать карточку или спросить ещё"
 		}
 		return r
 	}

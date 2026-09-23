@@ -310,6 +310,7 @@ export function AgentChat({ start, transport, onClose }: { start: AgentChatStart
   function renderMsg(msg: Msg) {
     if (msg.kind === 'user') return <div className="agent-bubble agent-bubble-user"><p className={cx(msg.skipped && 'is-skipped')}>{msg.skipped ? 'Пропущено' : msg.text}</p></div>
     if (msg.kind === 'question') return renderQuestion(msg)
+    if (msg.kind === 'error' && msg.resolved) return null // вход/повтор уже прошли — красный пузырь не нужен
     if (msg.kind === 'error') return <div className="agent-bubble agent-bubble-agent agent-bubble-error">
       <p>{msg.text}</p>{msg.detail && <p className="agent-note">{msg.detail}</p>}
       <div className="agent-actions"><Button size="sm" disabled={msg.resolved || pending} onClick={() => { patch(msg.id, m => ({ ...m, resolved: true }) as Msg); msg.retry() }}>Повторить</Button></div>

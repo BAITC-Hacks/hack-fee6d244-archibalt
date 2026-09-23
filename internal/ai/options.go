@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"errors"
+	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/rating"
 	"slices"
 	"strings"
 	"unicode"
@@ -86,7 +87,7 @@ func mockOptions(draft string, qs []model.Question) []model.ResultOption {
 // answerFor — первый непустой ответ на вопрос о поле k, без хвостовой пунктуации.
 func answerFor(qs []model.Question, k model.FieldKey) string {
 	for _, q := range qs {
-		if a := strings.TrimRight(strings.TrimSpace(q.Answer), ".!?;, "); q.FieldKey == k && a != "" {
+		if a := strings.TrimRight(strings.TrimSpace(q.Answer), ".!?;, "); q.FieldKey == k && a != "" && !rating.IsNoise(k, a) { // «здравствуйте» — не факт для варианта
 			return a
 		}
 	}
