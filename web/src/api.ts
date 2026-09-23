@@ -5,7 +5,7 @@ export interface Breakdown { key: string; label: string; weight: number; earned:
 export interface Missing { key: string; label: string; gain: number; hint: string }
 export interface Question { id: number; text: string; field_key: FieldKey; answer: string }
 export interface Team { id: number; name: string; contact?: string; skills: string[]; interests: string[]; tech: string[]; points: number }
-export interface Proposal { id: number; task_id: number; team: { id: number; name: string }; idea: string; plan: string; deadline: string; link: string; status: 'new' | 'selected' | 'rejected'; stage_confirmed: boolean; created_at: string }
+export interface Proposal { id: number; task_id: number; team: { id: number; name: string }; idea: string; plan: string; deadline: string; link: string; status: 'new' | 'selected' | 'accepted' | 'declined' | 'rejected' | 'on_hold'; stage_confirmed: boolean; created_at: string; accepted_at?: string | null; messages_count?: number }
 export interface Task { id: number; industry: string; status: 'draft' | 'clarifying' | 'editing' | 'published'; draft_text: string; fields: Fields; confirmed: boolean; score: number; level: Level; level_label: string; breakdown: Breakdown[]; missing: Missing[]; questions: Question[]; ai_mode: 'openai' | 'mock'; created_at: string; published_at: string | null; proposals?: Proposal[] }
 export interface CatalogResponse { tasks: Task[]; industries: string[]; levels: { key: string; label: string }[] }
 export interface AiInfo { mode: string; prompt_questions: string; prompt_card: string; schema_example: string; last_error: string | null }

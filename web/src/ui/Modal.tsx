@@ -22,12 +22,13 @@ export function Modal({ open, onClose, title, description, children, footer, siz
   const titleId = useId(); const descId = useId()
   const panel = useRef<HTMLDivElement>(null)
   const closeRef = useRef(onClose); closeRef.current = onClose
+  const focusRef = useRef(initialFocus); focusRef.current = initialFocus
 
   useEffect(() => {
     if (!open) return
     const previous = document.activeElement as HTMLElement | null
     openCount += 1; document.body.classList.add('ui-scroll-lock')
-    const first = initialFocus?.current || panel.current?.querySelector('.ui-modal-body')?.querySelector<HTMLElement>(FOCUSABLE) || panel.current
+    const first = focusRef.current?.current || panel.current?.querySelector('.ui-modal-body')?.querySelector<HTMLElement>(FOCUSABLE) || panel.current
     first?.focus()
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape') { event.preventDefault(); closeRef.current(); return }
@@ -44,7 +45,7 @@ export function Modal({ open, onClose, title, description, children, footer, siz
       openCount -= 1; if (openCount <= 0) { openCount = 0; document.body.classList.remove('ui-scroll-lock') }
       previous?.focus?.()
     }
-  }, [open, initialFocus])
+  }, [open])
 
   if (!open) return null
   return createPortal(
