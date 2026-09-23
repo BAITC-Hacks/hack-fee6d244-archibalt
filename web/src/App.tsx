@@ -22,7 +22,7 @@ export default function App() {
     <Layout mode={mode} setMode={setMode}>
       <Routes>
         <Route path="/" element={<Landing setMode={setMode} />} />
-        <Route path="/catalog" element={<Catalog setMode={setMode} />} />
+        <Route path="/catalog" element={<Catalog mode={mode} setMode={setMode} />} />
         <Route path="/task/new" element={<TaskNew />} />
         <Route path="/task/:id/clarify" element={<Clarify />} />
         <Route path="/task/:id/edit" element={<TaskEdit />} />
