@@ -175,6 +175,7 @@ AI **не** выставляет баллы, **не** выбирает кома�
 |---|---|---|
 | Go stdlib (`net/http`, `database/sql`, `encoding/json`) | BSD-3 | сервер, БД, JSON |
 | `github.com/jackc/pgx/v5` | MIT | драйвер PostgreSQL |
+| `github.com/coder/websocket` | ISC | WebSocket-чат отклика |
 | PostgreSQL 16 (Docker image `postgres:16-alpine`) | PostgreSQL License | база данных |
 | React 18, react-dom, react-router-dom 6 | MIT | фронтенд |
 | Vite 6, `@vitejs/plugin-react`, TypeScript 5 | MIT / Apache-2.0 | сборка фронта |

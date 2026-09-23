@@ -65,7 +65,7 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
       <div className="container landing-hero-grid">
       <div className="landing-hero-copy">
         <h1>Сырой запрос → задача с оценкой <span className="nowrap">0–100</span>. <em>Команды выбирают сами.</em></h1>
-        <p className="lead">AI задаёт 3–4 вопроса и собирает карточку только из ваших слов: 0 выдуманных фактов. Оценка объясняет, что добавить, а задача попадает в открытый каталог, где студенческие команды откликаются сами.</p>
+        <p className="lead">AI задаёт 3–4 вопроса и собирает карточку только из ваших слов, ничего не додумывая, — каждую строку вы проверяете и подтверждаете сами. Оценка объясняет, что добавить, а задача попадает в открытый каталог, где студенческие команды откликаются сами.</p>
         <form className="hero-input" onSubmit={submit}>
           <Textarea aria-label="Опишите задачу своими словами" minRows={3} value={draft} onChange={event => setDraft(event.target.value)}
             onKeyDown={event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit() }} placeholder={DRAFT_PLACEHOLDER} />
