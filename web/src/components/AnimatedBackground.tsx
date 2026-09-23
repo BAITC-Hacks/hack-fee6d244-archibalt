@@ -12,7 +12,7 @@ export function AnimatedBackground({ intensity = 'full' }: { intensity?: 'full' 
     let frame = 0
     const update = () => {
       frame = 0
-      const rect = el.parentElement?.getBoundingClientRect()
+      const rect = el.parentElement?.parentElement?.getBoundingClientRect()
       if (!rect || rect.bottom < 0 || rect.top > window.innerHeight) return
       el.style.setProperty('--parallax', `${Math.round(-rect.top * 0.15)}px`)
     }
@@ -21,7 +21,7 @@ export function AnimatedBackground({ intensity = 'full' }: { intensity?: 'full' 
     window.addEventListener('scroll', schedule, { passive: true })
     return () => { window.removeEventListener('scroll', schedule); cancelAnimationFrame(frame) }
   }, [])
-  return <div ref={node} className={`anim-bg anim-bg-${intensity}`} aria-hidden="true">
-    <span className="blob blob-a" /><span className="blob blob-b" /><span className="blob blob-c" />
+  return <div className={`anim-bg anim-bg-${intensity}`} aria-hidden="true">
+    <div ref={node} className="anim-bg-layer"><span className="blob blob-a" /><span className="blob blob-b" /><span className="blob blob-c" /></div>
   </div>
 }

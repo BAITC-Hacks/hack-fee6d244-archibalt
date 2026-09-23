@@ -94,10 +94,10 @@ export function Landing({ setMode }: { setMode: (mode: Mode) => void }) {
 
     <Reveal className="container landing-section">
       <div className="facts">
-        <div><strong>{example.breakdown.length || 7}</strong><p>показателей в открытой формуле рейтинга</p></div>
-        <div><strong>0–100</strong><p>балл готовности и место в каталоге</p></div>
-        <div><strong>≥3</strong><p>уточняющих вопроса по вашему тексту</p></div>
-        <div><strong>2</strong><p>подтверждения: вы выбираете команду, команда принимает проект</p></div>
+        <div><strong><CountUp to={example.breakdown.length || 7} /></strong><p>показателей в открытой формуле рейтинга</p></div>
+        <div><strong>0–<CountUp to={100} /></strong><p>балл готовности и место в каталоге</p></div>
+        <div><strong>≥<CountUp to={3} /></strong><p>уточняющих вопроса по вашему тексту</p></div>
+        <div><strong><CountUp to={2} /></strong><p>подтверждения: вы выбираете команду, команда принимает проект</p></div>
       </div>
     </Reveal>
 
@@ -153,4 +153,30 @@ function HeroRing({ from, to }: { from: number; to: number }) {
     <svg viewBox="0 0 160 160" aria-hidden="true"><circle cx="80" cy="80" r={r} className="hero-ring-track" /><circle cx="80" cy="80" r={r} className="hero-ring-arc" strokeDasharray={`${(value / 100) * length} ${length}`} /></svg>
     <span className="hero-ring-value"><strong>{value}</strong><small>из 100</small></span>
   </span>
+}
+
+/** Число считает от 0 до значения, когда впервые попадает на экран (один раз, ~1 с, easing out). */
+function CountUp({ to, duration = 1000 }: { to: number; duration?: number }) {
+  const node = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    const el = node.current
+    if (!el) return
+    if (typeof IntersectionObserver === 'undefined' || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { el.textContent = String(to); return }
+    el.textContent = '0'
+    let frame = 0
+    const observer = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return
+      observer.disconnect()
+      const begin = performance.now()
+      const tick = (now: number) => {
+        const t = Math.min(1, (now - begin) / duration)
+        el.textContent = String(Math.round(to * (1 - Math.pow(1 - t, 3))))
+        if (t < 1) frame = requestAnimationFrame(tick)
+      }
+      frame = requestAnimationFrame(tick)
+    }, { rootMargin: '0px 0px -10% 0px' })
+    observer.observe(el)
+    return () => { observer.disconnect(); cancelAnimationFrame(frame) }
+  }, [to, duration])
+  return <span ref={node} className="count-up">{to}</span>
 }
