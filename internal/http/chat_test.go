@@ -90,7 +90,7 @@ func TestTeamDecisions(t *testing.T) {
 	c.doAuth(f.owner, "POST", b+"/confirm-stage", nil, 400, nil)
 
 	// hold — бизнес по правилам select; у отклонённого командой отклика решение уже зафиксировано
-	c.do("POST", b+"/hold", nil, 403, nil)
+	c.do("POST", b+"/hold", nil, 401, nil)
 	c.doAuth(f.other, "POST", b+"/hold", nil, 403, nil)
 	c.doAuth(f.owner, "POST", b+"/hold", nil, 400, nil)
 	pc := f.propose(f.teamB, f.task.ID)
@@ -144,19 +144,22 @@ func TestChatREST(t *testing.T) {
 		t.Fatalf("messages_count в /api/business/me: %+v", bme.Tasks)
 	}
 
-	// задача без контакта: без токена пишет «бизнес» (демо), любой бизнес тоже
+	// задача без заявителя: без токена 401, любой бизнес 403; команда отклика пишет как team
 	seed := model.Task{Industry: "IT", Status: model.StatusPublished, Fields: model.Fields{}.Full()}
 	if err := f.repo.CreateTask(t.Context(), &seed); err != nil {
 		t.Fatal(err)
 	}
 	sp := f.propose(f.teamA, seed.ID)
 	spath := fmt.Sprintf("/api/proposals/%d/messages", sp.ID)
-	c.do("POST", spath, map[string]string{"text": "демо"}, 201, &m)
-	if m.Author != model.AuthorBusiness {
-		t.Fatalf("демо-автор: %+v", m)
-	}
-	c.doAuth(f.other, "GET", spath, nil, 200, nil)
+	c.do("POST", spath, map[string]string{"text": "демо"}, 401, nil)
+	c.do("GET", spath, nil, 401, nil)
+	c.doAuth(f.other, "GET", spath, nil, 403, nil)
+	c.doAuth(f.owner, "POST", spath, map[string]string{"text": "не мой"}, 403, nil)
 	c.doAuth(f.teamB, "GET", spath, nil, 403, nil)
+	c.doAuth(f.teamA, "POST", spath, map[string]string{"text": "вопрос"}, 201, &m)
+	if m.Author != model.AuthorTeam {
+		t.Fatalf("автор на задаче без заявителя: %+v", m)
+	}
 	c.do("GET", "/api/proposals/99/messages", nil, 404, nil)
 }
 

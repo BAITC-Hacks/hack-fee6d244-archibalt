@@ -40,6 +40,7 @@ type Repo interface {
 	SetTaskOwner(ctx context.Context, id int, contact string) error
 	ListMessages(ctx context.Context, proposalID int) ([]model.Message, error)
 	AddMessage(ctx context.Context, proposalID int, author, text string) (model.Message, error)
+	Stats(ctx context.Context) (store.Stats, error)
 }
 
 var _ Repo = (*store.Store)(nil)
@@ -262,26 +263,26 @@ func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
 	for _, l := range levelOrder {
 		levels = append(levels, levelOption{Key: l, Label: model.LevelLabels[l]})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tasks": publicTasks(tasks), "industries": industries, "levels": levels})
+	stats, err := s.repo.Stats(r.Context())
+	if err != nil { // «пульс» — украшение: без него каталог всё равно отдаём (нули)
+		slog.Warn("list tasks: stats", "err", err)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tasks": publicTasks(tasks), "industries": industries, "levels": levels, "stats": stats})
 }
 
+// createTask: заявитель обязателен — owner_contact берётся из бизнес-сессии, поле в теле игнорируется.
 func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
+	owner, ok := s.businessFromRequest(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, createTaskLoginMsg)
+		return
+	}
 	var req struct {
-		DraftText    string `json:"draft_text"`
-		Industry     string `json:"industry"`
-		OwnerContact string `json:"owner_contact"`
+		DraftText string `json:"draft_text"`
+		Industry  string `json:"industry"`
 	}
 	if !decode(w, r, &req) {
 		return
-	}
-	var owner string
-	if strings.TrimSpace(req.OwnerContact) != "" {
-		c, ok := normalizeContact(req.OwnerContact)
-		if !ok {
-			writeError(w, http.StatusBadRequest, badOwnerContactMsg)
-			return
-		}
-		owner = c
 	}
 	req.DraftText, req.Industry = strings.TrimSpace(req.DraftText), strings.TrimSpace(req.Industry)
 	if req.DraftText == "" {
@@ -389,8 +390,7 @@ func (s *server) answers(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if t.OwnerContact != "" && !s.isTaskOwner(r, t) {
-		writeError(w, http.StatusForbidden, "изменять задачу может заявитель: войдите по контакту, указанному в заявке")
+	if !s.requireOwner(w, r, t, notEditorMsg) {
 		return
 	}
 	var req struct {
@@ -436,10 +436,7 @@ func (s *server) updateFields(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// Задачу с контактом заявителя правит только заявитель (иначе аноним снимал бы чужую задачу с каталога);
-	// задачи без контакта открыты для дополнения любым (правило демо).
-	if t.OwnerContact != "" && !s.isTaskOwner(r, t) {
-		writeError(w, http.StatusForbidden, "дополнить карточку может заявитель задачи: войдите по контакту, указанному в заявке")
+	if !s.requireOwner(w, r, t, notEditorMsg) {
 		return
 	}
 	var req struct {
@@ -473,8 +470,7 @@ func (s *server) confirm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if t.OwnerContact != "" && !s.isTaskOwner(r, t) {
-		writeError(w, http.StatusForbidden, "изменять задачу может заявитель: войдите по контакту, указанному в заявке")
+	if !s.requireOwner(w, r, t, notEditorMsg) {
 		return
 	}
 	empty := true
@@ -506,19 +502,39 @@ func (s *server) confirm(w http.ResponseWriter, r *http.Request) {
 
 const (
 	badOwnerContactMsg = "owner_contact: укажите email или телефон"
+	createTaskLoginMsg = "чтобы создать задачу, войдите по email или телефону"
+	ownerLoginMsg      = "войдите как заявитель: по email или телефону, указанному в заявке"
+	noOwnerMsg         = "у задачи нет заявителя: изменять её и принимать решения по откликам некому"
+	notEditorMsg       = "изменять задачу может только её заявитель: войдите по контакту, указанному в заявке"
 	notOwnerMsg        = "решение принимает заявитель задачи: войдите по контакту, указанному в заявке"
 )
 
-// isTaskOwner — запрос с бизнес-токеном, чей контакт совпадает с owner_contact задачи.
-func (s *server) isTaskOwner(r *http.Request, t model.Task) bool {
+// requireOwner — менять задачу и решать по её откликам может только заявитель (бизнес-токен с контактом
+// owner_contact). У задачи без заявителя (seed/старые) — 403 всем; без бизнес-токена — 401; чужой контакт — 403 deniedMsg.
+func (s *server) requireOwner(w http.ResponseWriter, r *http.Request, t model.Task, deniedMsg string) bool {
+	if t.OwnerContact == "" {
+		writeError(w, http.StatusForbidden, noOwnerMsg)
+		return false
+	}
 	c, ok := s.businessFromRequest(r)
-	return ok && t.OwnerContact != "" && strings.EqualFold(c, t.OwnerContact)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, ownerLoginMsg)
+		return false
+	}
+	if !strings.EqualFold(c, t.OwnerContact) {
+		writeError(w, http.StatusForbidden, deniedMsg)
+		return false
+	}
+	return true
 }
 
-// setOwner задаёт контакт заявителя: если его ещё нет — любой, иначе только бизнес с текущим контактом.
+// setOwner меняет контакт заявителя — только сам заявитель; задаче без заявителя его не назначить.
 func (s *server) setOwner(w http.ResponseWriter, r *http.Request) {
 	t, ok := s.loadTask(w, r)
 	if !ok {
+		return
+	}
+	if !s.requireOwner(w, r, t, "контакт заявителя может изменить только заявитель, вошедший по нему") {
 		return
 	}
 	var req struct {
@@ -532,11 +548,6 @@ func (s *server) setOwner(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, badOwnerContactMsg)
 		return
 	}
-	// ponytail: проверка и запись не атомарны — два анонимных запроса на задачу без контакта: побеждает последний
-	if t.OwnerContact != "" && !s.isTaskOwner(r, t) {
-		writeError(w, http.StatusForbidden, "контакт заявителя уже задан: изменить его может только заявитель, вошедший по нему")
-		return
-	}
 	if err := s.repo.SetTaskOwner(r.Context(), t.ID, c); err != nil {
 		fail(w, err, "задача не найдена")
 		return
@@ -546,19 +557,14 @@ func (s *server) setOwner(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, publicTask(t))
 }
 
-// authorizeDecision: решения по откликам (select/reject/confirm-stage) у задачи с owner_contact
-// принимает только её заявитель; задачи без контакта (seed) открыты, как раньше.
+// authorizeDecision: решения по откликам (select/reject/hold/confirm-stage) принимает только заявитель задачи.
 func (s *server) authorizeDecision(w http.ResponseWriter, r *http.Request, taskID int) bool {
 	t, err := s.repo.GetTask(r.Context(), taskID)
 	if err != nil {
 		fail(w, err, "задача отклика не найдена")
 		return false
 	}
-	if t.OwnerContact == "" || s.isTaskOwner(r, t) {
-		return true
-	}
-	writeError(w, http.StatusForbidden, notOwnerMsg)
-	return false
+	return s.requireOwner(w, r, t, notOwnerMsg)
 }
 
 // createProposal: команда берётся из токена; team_id в теле игнорируется.

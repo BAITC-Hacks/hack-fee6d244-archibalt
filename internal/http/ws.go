@@ -44,8 +44,8 @@ func writeChatErr(w http.ResponseWriter, err error) {
 }
 
 // chatAuthor — кто пишет в чат отклика p по токену tok:
-// команда отклика → "team"; бизнес-владелец задачи → "business"; у задачи без owner_contact любой бизнес
-// и запрос без токена → "business" (демо). Чужая команда / чужой бизнес → 403, без токена на задаче с контактом → 401.
+// команда отклика → "team"; заявитель задачи (бизнес-токен с её owner_contact) → "business".
+// Без токена → 401; чужая команда, чужой бизнес, бизнес у задачи без заявителя → 403.
 func (s *server) chatAuthor(ctx context.Context, tok string, p model.Proposal) (string, error) {
 	if team, ok := s.teamFromToken(ctx, tok); ok {
 		if team.ID == p.Team.ID {
@@ -58,13 +58,10 @@ func (s *server) chatAuthor(ctx context.Context, tok string, p model.Proposal) (
 		return "", err
 	}
 	if c, ok := s.businessFromToken(tok); ok {
-		if t.OwnerContact == "" || strings.EqualFold(c, t.OwnerContact) {
+		if t.OwnerContact != "" && strings.EqualFold(c, t.OwnerContact) {
 			return model.AuthorBusiness, nil
 		}
 		return "", chatDenied{http.StatusForbidden, notOwnerMsg}
-	}
-	if t.OwnerContact == "" {
-		return model.AuthorBusiness, nil
 	}
 	return "", chatDenied{http.StatusUnauthorized, "войдите как команда отклика или как заявитель задачи"}
 }

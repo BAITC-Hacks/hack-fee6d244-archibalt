@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BAITC-Hacks/hack-fee6d244-archibalt/internal/model"
@@ -40,6 +41,8 @@ type seedTask struct {
 	Confirmed bool              `json:"confirmed"`
 	Status    string            `json:"status"`
 	Questions []seedQuestion    `json:"questions"`
+	// OwnerContact — необязательный email/телефон заявителя; без него задачу нельзя править и решать по откликам.
+	OwnerContact string `json:"owner_contact"`
 }
 
 type seedProposal struct {
@@ -169,10 +172,10 @@ func (s *Store) SeedIfEmpty(ctx context.Context, dir string, compute func(model.
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO tasks
-			(id, industry, status, draft_text, fields, confirmed, score, rating, questions, ai_mode, created_at, published_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+			(id, industry, status, draft_text, fields, confirmed, score, rating, questions, ai_mode, created_at, published_at, owner_contact)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 			t.ID, t.Industry, string(t.Status), t.DraftText, string(j.fields), t.Confirmed, t.Score,
-			string(j.rating), string(j.questions), string(t.AIMode), t.CreatedAt, t.PublishedAt); err != nil {
+			string(j.rating), string(j.questions), string(t.AIMode), t.CreatedAt, t.PublishedAt, t.OwnerContact); err != nil {
 			return fmt.Errorf("seed task %d: %w", t.ID, err)
 		}
 	}
@@ -216,6 +219,15 @@ func (st seedTask) toTask(now time.Time, compute func(model.Fields, bool) model.
 	}
 	fields = fields.Full()
 
+	var owner string
+	if strings.TrimSpace(st.OwnerContact) != "" {
+		c, ok := NormalizeContact(st.OwnerContact)
+		if !ok {
+			return model.Task{}, fmt.Errorf("seed tasks.json: задача %d: owner_contact %q — ожидается email или телефон", st.ID, st.OwnerContact)
+		}
+		owner = c
+	}
+
 	t := model.Task{
 		ID:        st.ID,
 		Industry:  st.Industry,
@@ -226,6 +238,8 @@ func (st seedTask) toTask(now time.Time, compute func(model.Fields, bool) model.
 		AIMode:    model.AIModeMock,
 		CreatedAt: now.Add(-time.Duration(st.ID) * time.Minute),
 		Questions: make([]model.Question, 0, len(st.Questions)),
+
+		OwnerContact: owner,
 	}
 	for i, q := range st.Questions {
 		t.Questions = append(t.Questions, model.Question{ID: i + 1, Text: q.Text, FieldKey: q.FieldKey, Answer: q.Answer})
@@ -247,6 +261,37 @@ func (st seedTask) toTask(now time.Time, compute func(model.Fields, bool) model.
 		t.Status = model.StatusEditing
 	}
 	return t, nil
+}
+
+// NormalizeContact: email → lower; телефон → только цифры, с «+» если исходник начинался с «+»,
+// 11 цифр с ведущей 8/7 → «+7XXXXXXXXXX». ok=false, если не похоже ни на то, ни на другое.
+// Общая нормализация для входа (httpapi) и owner_contact в seed.
+func NormalizeContact(raw string) (string, bool) {
+	c := strings.ToLower(strings.TrimSpace(raw))
+	if at := strings.Index(c, "@"); at >= 0 {
+		dot := strings.LastIndex(c, ".")
+		if at > 0 && dot > at+1 && dot < len(c)-1 && strings.Count(c, "@") == 1 && !strings.ContainsAny(c, " \t\n") {
+			return c, true
+		}
+		return "", false
+	}
+	digits := strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '(', ')', '-', '+':
+			return -1
+		}
+		return r
+	}, c)
+	if len(digits) < 10 || len(digits) > 15 || strings.Trim(digits, "0123456789") != "" {
+		return "", false
+	}
+	switch {
+	case len(digits) == 11 && (digits[0] == '8' || digits[0] == '7') && !strings.HasPrefix(c, "+"):
+		return "+7" + digits[1:], true
+	case strings.HasPrefix(c, "+"):
+		return "+" + digits, true
+	}
+	return digits, true
 }
 
 func nonNil(v []string) []string {

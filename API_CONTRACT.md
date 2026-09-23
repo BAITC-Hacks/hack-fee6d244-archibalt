@@ -8,7 +8,7 @@ Dev: бэкенд `go run ./cmd/server` на `:8080`; фронт `npm run dev` �
 ## Общие правила
 
 - JSON, UTF-8. Даты ISO-8601 строкой. Ошибка: `{ "error": "текст" }` с 400 (валидация) / 404 / 502 (AI недоступен и mock не сработал — не должно случаться).
-- Режим «Я бизнес / Я команда» — на фронте (localStorage `mode`); вход обеих ролей по одноразовому коду (разделы ниже); задачи без контакта заявителя открыты для решений (ТЗ §7: сложная ролевая модель не нужна).
+- Режим «Я бизнес / Я команда» — на фронте (localStorage `mode`); вход обеих ролей по одноразовому коду (разделы ниже). **Любое изменение требует входа:** задачу создаёт, дополняет, подтверждает и решает по её откликам только заявитель (Bearer business с `owner_contact` задачи), откликается — команда (Bearer team). Без токена → 401, чужой токен → 403. Смотреть каталог и карточки можно без входа.
 - Все запросы синхронные; чат — по WebSocket (см. раздел «WebSocket чата»). AI-вызовы могут занимать до ~10 с — фронт показывает спиннер.
 
 ## Объекты
@@ -32,6 +32,7 @@ interface Task {
   ai_mode: "openai" | "mock";
   created_at: string; published_at: string | null;
   proposals?: Proposal[];                  // только в GET /api/tasks/{id}
+  owner_contact: string;                   // контакт заявителя: у новых задач есть всегда (из бизнес-сессии); в публичных ответах маскирован, полный — в /api/business/me; "" — у seed-задач без заявителя
   // лестница мест — считает бэкенд на каждый ответ, в БД не хранится
   rank: number;                            // место в каталоге (1 = первое) по score DESC, published_at ASC; 0 — не опубликована
   rank_if_confirmed: number;               // место при текущем score, если подтвердить сейчас (равный балл — после уже опубликованных); у опубликованной = rank
@@ -67,16 +68,16 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 
 | Метод и путь | Тело запроса | Ответ | Заметки |
 |---|---|---|---|
-| GET `/api/tasks?industry=&level=` | — | `{ tasks: Task[], industries: string[], levels: {key,label}[] }` | только published; сортировка score DESC, published_at ASC; фильтры опциональны |
-| POST `/api/tasks` | `{ draft_text: string, industry: string }` | `Task` (status `clarifying`, `questions` заполнены ≥3) | draft_text пустой → 400. AI вызывается здесь |
+| GET `/api/tasks?industry=&level=` | — | `{ tasks: Task[], industries: string[], levels: {key,label}[], stats: { tasks, proposals, teams } }` | только published; сортировка score DESC, published_at ASC; фильтры опциональны. `stats` — «пульс площадки»: опубликованных задач, всего откликов, всего команд (фильтры на него не влияют) |
+| POST `/api/tasks` | `{ draft_text: string, industry: string }` | `Task` (status `clarifying`, `questions` заполнены ≥3, `owner_contact` маскирован) | **бизнес-токен обязателен** (Bearer business): без него 401 `{error:"чтобы создать задачу, войдите по email или телефону"}`. `owner_contact` берётся из сессии, поле в теле игнорируется. draft_text пустой → 400. AI вызывается здесь |
 | GET `/api/tasks/{id}` | — | `Task` с `proposals` | любой статус |
 | POST `/api/tasks/{id}/answers` | `{ answers: { [question_id: string]: string } }` | `Task` (status `editing`, `fields` собраны AI из черновика+ответов, score посчитан, confirmed=false) | AI вызывается здесь; поля без данных остаются "" |
-| PUT `/api/tasks/{id}/fields` | `{ fields: Partial<Record<FieldKey,string>> }` | `Task` (score/breakdown/missing пересчитаны, confirmed=false) | ручное редактирование, можно вызывать много раз. У задачи с `owner_contact` — только заявитель (Bearer business), иначе 403; то же для `answers` и `confirm`. Задачи без контакта открыты |
+| PUT `/api/tasks/{id}/fields` | `{ fields: Partial<Record<FieldKey,string>> }` | `Task` (score/breakdown/missing пересчитаны, confirmed=false) | ручное редактирование, можно вызывать много раз. Только заявитель (Bearer business с `owner_contact` задачи): без токена 401, чужой — 403; у задачи без `owner_contact` (seed) — 403 «у задачи нет заявителя» всем. То же для `answers`, `confirm`, `owner` |
 | POST `/api/tasks/{id}/confirm` | — | `Task` (confirmed=true, status `published`, published_at) | ручное подтверждение = публикация. Баллы начисляются только подтверждённым полям, поэтому score до confirm — «предварительный» (фронт так и подписывает) |
 | POST `/api/tasks/{id}/proposals` | `{ team_id, idea, plan, deadline, link }` | `Proposal` | все поля обязательны → иначе 400; лимита нет |
-| POST `/api/proposals/{id}/select` | — | `Proposal` | бизнес выбрал |
-| POST `/api/proposals/{id}/reject` | — | `Proposal` | бизнес отклонил |
-| POST `/api/proposals/{id}/confirm-stage` | — | `Proposal` (+ команде начислены баллы) | **вне критического пути**, после 16:00 |
+| POST `/api/proposals/{id}/select` | — | `Proposal` | заявитель выбрал (права — как у `fields`) |
+| POST `/api/proposals/{id}/reject` | — | `Proposal` | заявитель отклонил |
+| POST `/api/proposals/{id}/confirm-stage` | — | `Proposal` (+ команде начислены баллы) | заявитель подтвердил этап |
 | GET `/api/teams` | — | `Team[]` | для select в форме отклика |
 | GET `/api/teams/{id}/recommended` | — | `Task[]` | **вне критического пути** |
 | GET `/api/ai` | — | `{ mode, prompt_questions, prompt_card, schema_example, last_error: string\|null, last_call: {...}\|null }` | страница «как работает AI» для ТЗ §5; в `last_call` email и телефоны маскированы |
@@ -104,6 +105,7 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 
 // seed/tasks.json  — карточки разной полноты; score/level/breakdown/missing НЕ указывать, считает бэкенд
 { id: number; industry: string; draft_text: string;
+  owner_contact?: string;                      // email/телефон заявителя; без него задачу нельзя править и решать по откликам
   fields: Partial<Record<FieldKey, string>>;   // отсутствующие ключи = ""
   confirmed: boolean;                          // true → status "published", published_at = now - N минут по порядку id
   status?: "editing" | "published";            // необязательно; выводится из confirmed
@@ -123,7 +125,7 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 
 ## Вход команды по одноразовому коду (решение Абылая, ~13:40)
 
-Регистрации нет (ТЗ §7). Студент вводит email или телефон, получает одноразовый код, вводит его — и он в системе как команда. **Демо-режим:** код никуда не отправляется и всегда равен `000000`; сервер прямо возвращает это в ответе, а фронт показывает подсказку «Демо-режим: введите код 000000». Бизнес по-прежнему без входа.
+Регистрации нет (ТЗ §7). Студент вводит email или телефон, получает одноразовый код, вводит его — и он в системе как команда. **Демо-режим:** код никуда не отправляется и всегда равен `000000`; сервер прямо возвращает это в ответе, а фронт показывает подсказку «Демо-режим: введите код 000000». Бизнес входит так же (раздел «Контакт заявителя и вход бизнеса»).
 
 | Метод и путь | Тело | Ответ | Заметки |
 |---|---|---|---|
@@ -135,20 +137,22 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 
 `Team` получает поле `contact: string`, но в публичных ответах (`GET /api/teams`, отклики) оно всегда пустое; контакт виден только самой команде в `GET /api/me` (ТЗ §5: персональные признаки не раскрываются). Фронт: переключение в «Я команда» без токена → экран входа в два шага (контакт → код, с подсказкой про 000000, опционально имя команды на первом входе). Страница «Мои отклики». У бизнеса на странице задачи — отклики рядом для сравнения и ручной выбор. Сессии в памяти сервера: перезапуск контейнера разлогинивает (известное упрощение).
 
-## Контакт заявителя и вход бизнеса (решение Абылая, ~14:20)
+## Контакт заявителя и вход бизнеса (решение владельца: заявитель обязателен)
 
-Правила: **дополнять карточку может любой** (PUT fields без входа, как раньше). Контакт, оставленный при заявке, даёт бизнесу вход тем же одноразовым кодом (`000000` в демо), чтобы вернуться к своим задачам, обновить их, увидеть отклики и принять команду. Задачи **без** контакта (seed) остаются полностью открытыми, включая select/reject.
+Правила: **без входа задачу не создать, не дополнить и не решить по откликам.** Заявитель входит по email или телефону одноразовым кодом (`000000` в демо); задача, созданная в этой сессии, получает его контакт как `owner_contact`. Вернувшись, заявитель видит свои задачи, кто откликнулся, статусы и свои решения (`GET /api/business/me`). Задачи **без** `owner_contact` (seed без поля `owner_contact`, старые) можно смотреть и на них можно откликаться, но править и решать по откликам их не может никто (403 «у задачи нет заявителя»).
 
 | Метод и путь | Тело | Ответ | Заметки |
 |---|---|---|---|
-| POST `/api/tasks` | `{ draft_text, industry, owner_contact?: string }` | `Task` (+ `owner_contact` в маскированном виде `o***@mail.kz`) | email/телефон заявителя; необязателен. Нормализация как у команд |
-| POST `/api/tasks/{id}/owner` | `{ owner_contact }` | `Task` | задать контакт позже (например, на шаге подтверждения); только если у задачи контакта ещё нет или запрос с токеном бизнеса этой задачи |
+| POST `/api/tasks` | `{ draft_text, industry }` (Bearer business) | `Task` (+ `owner_contact` в маскированном виде `o***@mail.kz`) | контакт — из сессии; без токена 401 |
+| POST `/api/tasks/{id}/owner` | `{ owner_contact }` | `Task` | передать задачу другому контакту: только текущий заявитель (401 без токена, 403 чужой, 403 у задачи без заявителя) |
 | POST `/api/auth/business/request-code` | `{ contact }` | `{ sent, demo, hint }` | как у команд |
 | POST `/api/auth/business/verify` | `{ contact, code }` | `{ token, contact }` | 401 при неверном коде; команда не создаётся |
-| GET `/api/business/me` | — (Bearer) | `{ contact, tasks: Task[] }` | задачи с этим `owner_contact`, каждая с `proposals` |
-| POST `/api/proposals/{id}/select` / `reject` / `confirm-stage` | — | `Proposal` | **Изменение:** если у задачи есть `owner_contact`, нужен токен бизнеса с тем же контактом, иначе 403; у задач без контакта — как раньше, открыто |
+| GET `/api/business/me` | — (Bearer) | `{ contact, tasks: Task[] }` | задачи с этим `owner_contact` (новые сверху, любой статус), у каждой `proposals` — «кто откликнулся, какие решения»: `team {id,name}`, `status`, `created_at`, `accepted_at`, `messages_count` |
+| POST `/api/proposals/{id}/select` / `reject` / `hold` / `confirm-stage` | — | `Proposal` | только заявитель задачи: без токена 401, чужой 403, у задачи без `owner_contact` — 403 |
 
-`Task` получает `owner_contact: string` (в публичных ответах маскирован, полный — только в `/api/business/me`). Один токен-хранилище на фронте для обеих ролей: `team_token` и `business_token`. Флаг `REQUIRE_TEAM_LOGIN=false` не влияет на бизнес-правила.
+`Task` получает `owner_contact: string` (в публичных ответах маскирован, полный — только в `/api/business/me`). Один токен-хранилище на фронте для обеих ролей: `team_token` и `business_token`. Флаг `REQUIRE_TEAM_LOGIN=false` касается только отклика команды и не влияет на бизнес-правила.
+
+Seed: в `seed/tasks.json` у задачи можно указать необязательное `owner_contact` (email/телефон; нормализуется как при входе — lower/trim, телефон → `+7…`; невалидный → ошибка загрузки). Без поля задача остаётся без заявителя.
 
 ## Чат по отклику и двустороннее принятие (решение Абылая, ~14:30)
 
@@ -158,15 +162,15 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 |---|---|---|---|
 | POST `/api/proposals/{id}/accept` | — | `Proposal` (status `accepted`) | команда отклика (Bearer team), только из `selected` |
 | POST `/api/proposals/{id}/decline` | — | `Proposal` (status `declined`) | команда отклика, из `selected` |
-| POST `/api/proposals/{id}/hold` | — | `Proposal` (status `on_hold`) | бизнес (правила как у select) |
-| GET `/api/proposals/{id}/messages` | — | `{ messages: [{ id, author: "team"\|"business", text, created_at }] }` | команда отклика или бизнес задачи (у задач без контакта — любой в режиме бизнеса) |
-| POST `/api/proposals/{id}/messages` | `{ text }` | `Message` | автор определяется токеном: team → "team"; business → "business"; без токена на задаче без контакта → "business" (демо) |
+| POST `/api/proposals/{id}/hold` | — | `Proposal` (status `on_hold`) | заявитель (правила как у select) |
+| GET `/api/proposals/{id}/messages` | — | `{ messages: [{ id, author: "team"\|"business", text, created_at }] }` | команда отклика или заявитель задачи; без токена 401 |
+| POST `/api/proposals/{id}/messages` | `{ text }` | `Message` | автор определяется токеном: команда отклика → "team"; заявитель задачи → "business". Без токена 401; чужая команда / чужой бизнес / бизнес у задачи без заявителя → 403 |
 
 Чат без realtime: фронт обновляет список при открытии и по кнопке/таймеру 5 с. В `Proposal` добавляется `messages_count: number` и `accepted_at: string|null`. В `/api/me` и `/api/business/me` отклики приходят с этими полями.
 
 ## WebSocket чата
 
-`GET /api/proposals/{id}/ws?token=<team_token | business_token>` — апгрейд до WebSocket. Права те же, что у `GET /api/proposals/{id}/messages`: команда отклика → автор `team`; заявитель задачи (бизнес-токен с её `owner_contact`) → `business`; у задачи без контакта — любой бизнес-токен или запрос без токена → `business` (демо). Отказ — обычный JSON-ответ **до** апгрейда: 401 (нет токена у задачи с контактом), 403 (чужая команда / чужой бизнес), 404 (нет отклика). Токен можно передать и заголовком `Authorization: Bearer`, но браузерный WebSocket заголовки не шлёт — поэтому `?token=`.
+`GET /api/proposals/{id}/ws?token=<team_token | business_token>` — апгрейд до WebSocket. Права те же, что у `GET /api/proposals/{id}/messages`: команда отклика → автор `team`; заявитель задачи (бизнес-токен с её `owner_contact`) → `business`. Отказ — обычный JSON-ответ **до** апгрейда: 401 (нет токена), 403 (чужая команда / чужой бизнес / бизнес у задачи без заявителя), 404 (нет отклика). Токен можно передать и заголовком `Authorization: Bearer`, но браузерный WebSocket заголовки не шлёт — поэтому `?token=`.
 
 Origin: разрешён хост самого сервера и шаблоны из `WS_ORIGINS` (через запятую, `path.Match` по `host:port`), по умолчанию `localhost:*,127.0.0.1:*`; чужой Origin → 403.
 

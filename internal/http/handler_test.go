@@ -317,6 +317,18 @@ func (m *memRepo) AddMessage(_ context.Context, proposalID int, author, text str
 	return msg, nil
 }
 
+func (m *memRepo) Stats(context.Context) (store.Stats, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st := store.Stats{Proposals: len(m.proposals), Teams: len(m.teams)}
+	for _, t := range m.tasks {
+		if t.Status == model.StatusPublished {
+			st.Tasks++
+		}
+	}
+	return st, nil
+}
+
 // fakeRating: 10 баллов за каждое непустое поле.
 func fakeRating(f model.Fields, _ bool) model.Rating {
 	score := 0
@@ -366,25 +378,42 @@ func (c testClient) doAuth(token, method, path string, body any, wantStatus int,
 	}
 }
 
+// bizLogin — вход бизнеса (заявителя) по контакту, возвращает токен.
+func (c testClient) bizLogin(contact string) string {
+	c.t.Helper()
+	var lg struct{ Token string }
+	c.do("POST", "/api/auth/business/verify", map[string]string{"contact": contact, "code": "000000"}, 200, &lg)
+	return lg.Token
+}
+
 func TestFlow(t *testing.T) {
 	repo := newMemRepo()
 	c := testClient{t, NewHandler(repo, fakeAI{}, fakeRating, t.TempDir(), "")}
 
+	// без входа бизнеса задачу не создать; owner_contact из тела игнорируется
 	var errResp struct{ Error string }
-	c.do("POST", "/api/tasks", map[string]string{"draft_text": "  ", "industry": "IT"}, 400, &errResp)
+	c.do("POST", "/api/tasks", map[string]string{"draft_text": "Нужно приложение", "industry": "IT", "owner_contact": "x@y.kz"}, 401, &errResp)
+	if errResp.Error != createTaskLoginMsg {
+		t.Fatalf("401 без входа: %q", errResp.Error)
+	}
+	biz := c.bizLogin("flow@owner.kz")
+	c.doAuth(biz, "POST", "/api/tasks", map[string]string{"draft_text": "  ", "industry": "IT"}, 400, &errResp)
 	if errResp.Error == "" {
 		t.Fatal("ожидалось поле error")
 	}
-	c.do("POST", "/api/tasks", map[string]string{"draft_text": "Нужно приложение", "industry": ""}, 400, nil)
-	c.do("POST", "/api/tasks", "{broken", 400, nil)
+	c.doAuth(biz, "POST", "/api/tasks", map[string]string{"draft_text": "Нужно приложение", "industry": ""}, 400, nil)
+	c.doAuth(biz, "POST", "/api/tasks", "{broken", 400, nil)
 
 	var task model.Task
-	c.do("POST", "/api/tasks", map[string]string{"draft_text": "Нужно приложение для учёта заявок", "industry": "IT"}, 201, &task)
+	c.doAuth(biz, "POST", "/api/tasks", map[string]string{"draft_text": "Нужно приложение для учёта заявок", "industry": "IT"}, 201, &task)
 	if task.ID == 0 || task.Status != model.StatusClarifying || len(task.Questions) < 3 || task.AIMode != model.AIModeMock {
 		t.Fatalf("неверная задача после создания: %+v", task)
 	}
 	if len(task.Fields) != len(model.FieldKeys) {
 		t.Fatalf("fields должны содержать все 10 ключей, got %d", len(task.Fields))
+	}
+	if task.OwnerContact != "f***@owner.kz" || repo.tasks[task.ID].OwnerContact != "flow@owner.kz" {
+		t.Fatalf("owner_contact из сессии: ответ %q, хранение %q", task.OwnerContact, repo.tasks[task.ID].OwnerContact)
 	}
 	path := fmt.Sprintf("/api/tasks/%d", task.ID)
 
@@ -393,6 +422,7 @@ func TestFlow(t *testing.T) {
 		Tasks      []model.Task
 		Industries []string
 		Levels     []struct{ Key, Label string }
+		Stats      store.Stats
 	}
 	c.do("GET", "/api/tasks", nil, 200, &cat)
 	if len(cat.Tasks) != 0 || len(cat.Levels) != 4 {
@@ -404,15 +434,17 @@ func TestFlow(t *testing.T) {
 	for _, q := range task.Questions {
 		answers[fmt.Sprint(q.ID)] = "ответ на " + string(q.FieldKey)
 	}
-	c.do("POST", path+"/answers", map[string]any{"answers": map[string]string{"999": "x"}}, 400, nil)
-	c.do("POST", path+"/answers", map[string]any{"answers": answers}, 200, &task)
+	c.doAuth(biz, "POST", path+"/answers", map[string]any{"answers": map[string]string{"999": "x"}}, 400, nil)
+	c.doAuth(biz, "POST", path+"/answers", map[string]any{"answers": answers}, 200, &task)
 	if task.Status != model.StatusEditing || task.Confirmed || task.Fields[model.FieldUsers] != "ответ на users" || task.Questions[0].Answer == "" {
 		t.Fatalf("после answers: %+v", task)
 	}
 	before := task.Score
 
-	c.do("PUT", path+"/fields", map[string]any{"fields": map[string]string{"bogus": "x"}}, 400, nil)
-	c.do("PUT", path+"/fields", map[string]any{"fields": map[string]string{"interaction_format": "раз в неделю созвон"}}, 200, &task)
+	// без токена — 401, токен команды — тоже не вход бизнеса
+	c.do("PUT", path+"/fields", map[string]any{"fields": map[string]string{"title": "x"}}, 401, nil)
+	c.doAuth(biz, "PUT", path+"/fields", map[string]any{"fields": map[string]string{"bogus": "x"}}, 400, nil)
+	c.doAuth(biz, "PUT", path+"/fields", map[string]any{"fields": map[string]string{"interaction_format": "раз в неделю созвон"}}, 200, &task)
 	if task.Fields[model.FieldInteractionFormat] != "раз в неделю созвон" || task.Fields[model.FieldUsers] == "" || task.Score <= before {
 		t.Fatalf("PUT fields должен мерджить и пересчитывать: score %d→%d, %+v", before, task.Score, task.Fields)
 	}
@@ -425,7 +457,7 @@ func TestFlow(t *testing.T) {
 	tok := login.Token
 	c.doAuth(tok, "POST", path+"/proposals", map[string]any{"idea": "i", "plan": "p", "deadline": "d", "link": "https://x.kz"}, 400, nil) // не опубликована
 
-	c.do("POST", path+"/confirm", nil, 200, &task)
+	c.doAuth(biz, "POST", path+"/confirm", nil, 200, &task)
 	if !task.Confirmed || task.Status != model.StatusPublished || task.PublishedAt == nil {
 		t.Fatalf("после confirm: %+v", task)
 	}
@@ -448,19 +480,26 @@ func TestFlow(t *testing.T) {
 		t.Fatalf("proposal: %+v", prop)
 	}
 	ppath := fmt.Sprintf("/api/proposals/%d", prop.ID)
-	c.do("POST", ppath+"/confirm-stage", nil, 400, nil) // ещё не выбрана
-	c.do("POST", ppath+"/select", nil, 200, &prop)
+	c.do("POST", ppath+"/select", nil, 401, nil)
+	c.doAuth(tok, "POST", ppath+"/select", nil, 401, nil)        // токен команды не даёт права заявителя
+	c.doAuth(biz, "POST", ppath+"/confirm-stage", nil, 400, nil) // ещё не выбрана
+	c.doAuth(biz, "POST", ppath+"/select", nil, 200, &prop)
 	if prop.Status != model.ProposalSelected {
 		t.Fatalf("select: %+v", prop)
 	}
-	c.do("POST", ppath+"/confirm-stage", nil, 200, nil) // выбрана — этап подтверждается и до принятия командой
+	c.doAuth(biz, "POST", ppath+"/confirm-stage", nil, 200, nil) // выбрана — этап подтверждается и до принятия командой
 	c.doAuth(tok, "POST", ppath+"/accept", nil, 200, &prop)
-	c.do("POST", ppath+"/confirm-stage", nil, 200, &prop)
-	c.do("POST", ppath+"/confirm-stage", nil, 200, &prop) // идемпотентно
+	c.doAuth(biz, "POST", ppath+"/confirm-stage", nil, 200, &prop)
+	c.doAuth(biz, "POST", ppath+"/confirm-stage", nil, 200, &prop) // идемпотентно
 	if !prop.StageConfirmed || repo.teams[login.Team.ID].Points != store.StagePoints {
 		t.Fatalf("confirm-stage: %+v, points %d", prop, repo.teams[login.Team.ID].Points)
 	}
-	c.do("POST", "/api/proposals/77/reject", nil, 404, nil)
+	c.doAuth(biz, "POST", "/api/proposals/77/reject", nil, 404, nil)
+
+	c.do("GET", "/api/tasks", nil, 200, &cat) // пульс площадки: 1 опубликованная, 1 отклик, 2 команды (seed «Байты» + вошедшая)
+	if cat.Stats != (store.Stats{Tasks: 1, Proposals: 1, Teams: 2}) {
+		t.Fatalf("stats: %+v", cat.Stats)
+	}
 
 	var full model.Task
 	c.do("GET", path, nil, 200, &full)
@@ -469,7 +508,7 @@ func TestFlow(t *testing.T) {
 	}
 
 	// редактирование опубликованной снимает подтверждение и убирает из каталога до повторного confirm
-	c.do("PUT", path+"/fields", map[string]any{"fields": map[string]string{"title": "Учёт заявок"}}, 200, &task)
+	c.doAuth(biz, "PUT", path+"/fields", map[string]any{"fields": map[string]string{"title": "Учёт заявок"}}, 200, &task)
 	c.do("GET", "/api/tasks", nil, 200, &cat)
 	if task.Confirmed || len(cat.Tasks) != 0 {
 		t.Fatalf("после правки задача не должна быть подтверждённой в каталоге")
@@ -556,6 +595,7 @@ func TestLadder(t *testing.T) {
 		}
 	}
 	c := testClient{t, NewHandler(repo, fakeAI{}, fakeRating, t.TempDir(), "")}
+	biz := c.bizLogin("ladder@owner.kz")
 
 	var cat struct{ Tasks []model.Task }
 	c.do("GET", "/api/tasks", nil, 200, &cat)
@@ -583,7 +623,7 @@ func TestLadder(t *testing.T) {
 	}
 
 	var task model.Task
-	c.do("POST", "/api/tasks", map[string]string{"draft_text": "Нужно приложение", "industry": "IT"}, 201, &task)
+	c.doAuth(biz, "POST", "/api/tasks", map[string]string{"draft_text": "Нужно приложение", "industry": "IT"}, 201, &task)
 	// fakeRating: context = 10 баллов → после 90,70,70,55,30 встаёт шестой
 	if task.Rank != 0 || task.RankIfConfirmed != 6 || task.CatalogSize != 5 || task.PreviousScore != nil || task.NextLevelGain != 30 {
 		t.Fatalf("после создания: rank %d, if_confirmed %d, size %d, prev %v, gain %d",
@@ -595,7 +635,7 @@ func TestLadder(t *testing.T) {
 		answers[fmt.Sprint(q.ID)] = "ответ"
 	}
 	before := task.Score
-	c.do("POST", path+"/answers", map[string]any{"answers": answers}, 200, &task)
+	c.doAuth(biz, "POST", path+"/answers", map[string]any{"answers": answers}, 200, &task)
 	if task.PreviousScore == nil || *task.PreviousScore != before || task.Score != 40 {
 		t.Fatalf("answers: prev %v, want %d; score %d", task.PreviousScore, before, task.Score)
 	}
@@ -605,11 +645,11 @@ func TestLadder(t *testing.T) {
 	}
 
 	// PUT fields: 50 баллов → 20 до 70; выше 30, ниже 55 → по-прежнему пятая
-	c.do("PUT", path+"/fields", map[string]any{"fields": map[string]string{"title": "t"}}, 200, &task)
+	c.doAuth(biz, "PUT", path+"/fields", map[string]any{"fields": map[string]string{"title": "t"}}, 200, &task)
 	if task.PreviousScore == nil || *task.PreviousScore != 40 || task.Score != 50 || task.NextLevelGain != 20 || task.RankIfConfirmed != 5 {
 		t.Fatalf("fields: prev %v, score %d, gain %d, if_confirmed %d", task.PreviousScore, task.Score, task.NextLevelGain, task.RankIfConfirmed)
 	}
-	c.do("PUT", path+"/fields", map[string]any{"fields": map[string]string{"need": "n", "constraints": "c"}}, 200, &task)
+	c.doAuth(biz, "PUT", path+"/fields", map[string]any{"fields": map[string]string{"need": "n", "constraints": "c"}}, 200, &task)
 	if task.Score != 70 || *task.PreviousScore != 50 || task.RankIfConfirmed != 4 { // при равном 70 — после двух опубликованных
 		t.Fatalf("равный балл: score %d, prev %v, if_confirmed %d", task.Score, *task.PreviousScore, task.RankIfConfirmed)
 	}
@@ -617,13 +657,13 @@ func TestLadder(t *testing.T) {
 	for _, k := range model.FieldKeys {
 		all[string(k)] = "x"
 	}
-	c.do("PUT", path+"/fields", map[string]any{"fields": all}, 200, &task)
+	c.doAuth(biz, "PUT", path+"/fields", map[string]any{"fields": all}, 200, &task)
 	if task.Score != 100 || task.RankIfConfirmed != 1 || task.Rank != 0 || task.NextLevelGain != 0 {
 		t.Fatalf("100 баллов: score %d, rank %d, if_confirmed %d, gain %d", task.Score, task.Rank, task.RankIfConfirmed, task.NextLevelGain)
 	}
 	wantRank := task.RankIfConfirmed
 
-	c.do("POST", path+"/confirm", nil, 200, &task)
+	c.doAuth(biz, "POST", path+"/confirm", nil, 200, &task)
 	if task.Rank != wantRank || task.RankIfConfirmed != wantRank || task.CatalogSize != 6 || task.PreviousScore == nil || *task.PreviousScore != 100 {
 		t.Fatalf("confirm: rank %d, want %d; size %d; prev %v", task.Rank, wantRank, task.CatalogSize, task.PreviousScore)
 	}

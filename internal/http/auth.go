@@ -116,35 +116,8 @@ func unauthorized(w http.ResponseWriter) {
 
 const badContactMsg = "contact: укажите email или телефон"
 
-// normalizeContact: email → lower; телефон → только цифры, с «+» если исходник начинался с «+»,
-// 11 цифр с ведущей 8/7 → «+7XXXXXXXXXX». ok=false, если не похоже ни на то, ни на другое.
-func normalizeContact(raw string) (string, bool) {
-	c := strings.ToLower(strings.TrimSpace(raw))
-	if at := strings.Index(c, "@"); at >= 0 {
-		dot := strings.LastIndex(c, ".")
-		if at > 0 && dot > at+1 && dot < len(c)-1 && strings.Count(c, "@") == 1 && !strings.ContainsAny(c, " \t\n") {
-			return c, true
-		}
-		return "", false
-	}
-	digits := strings.Map(func(r rune) rune {
-		switch r {
-		case ' ', '(', ')', '-', '+':
-			return -1
-		}
-		return r
-	}, c)
-	if len(digits) < 10 || len(digits) > 15 || strings.Trim(digits, "0123456789") != "" {
-		return "", false
-	}
-	switch {
-	case len(digits) == 11 && (digits[0] == '8' || digits[0] == '7') && !strings.HasPrefix(c, "+"):
-		return "+7" + digits[1:], true
-	case strings.HasPrefix(c, "+"):
-		return "+" + digits, true
-	}
-	return digits, true
-}
+// normalizeContact — см. store.NormalizeContact (одна нормализация для входа и seed).
+func normalizeContact(raw string) (string, bool) { return store.NormalizeContact(raw) }
 
 // maskContact скрывает середину контакта для логов и публичных ответов (owner_contact задачи):
 // «o***@mail.kz», «+7701***0099».
@@ -333,5 +306,18 @@ func (s *server) businessMe(w http.ResponseWriter, r *http.Request) {
 		fail(w, err, "")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"contact": contact, "tasks": tasks})
+	out := make([]ownerTask, len(tasks))
+	for i, t := range tasks {
+		out[i] = ownerTask{Task: t, Proposals: t.Proposals}
+		if out[i].Proposals == nil {
+			out[i].Proposals = []model.Proposal{}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"contact": contact, "tasks": out})
+}
+
+// ownerTask — задача в «Мои задачи»: proposals всегда массивом (у model.Task он omitempty), даже пустым.
+type ownerTask struct {
+	model.Task
+	Proposals []model.Proposal `json:"proposals"`
 }
