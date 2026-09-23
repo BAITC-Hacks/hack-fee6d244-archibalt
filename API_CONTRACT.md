@@ -134,3 +134,17 @@ interface Team { id: number; name: string; skills: string[]; interests: string[]
 | POST `/api/proposals/{id}/select` / `reject` / `confirm-stage` | — | `Proposal` | **Изменение:** если у задачи есть `owner_contact`, нужен токен бизнеса с тем же контактом, иначе 403; у задач без контакта — как раньше, открыто |
 
 `Task` получает `owner_contact: string` (в публичных ответах маскирован, полный — только в `/api/business/me`). Один токен-хранилище на фронте для обеих ролей: `team_token` и `business_token`. Флаг `REQUIRE_TEAM_LOGIN=false` не влияет на бизнес-правила.
+
+## Чат по отклику и двустороннее принятие (решение Абылая 16:30)
+
+Статусы отклика: `new` → `selected` (бизнес выбрал) → `accepted` (команда подтвердила; проект принят обеими сторонами) | `declined` (команда отказалась после выбора). Также `rejected` (бизнес отклонил) и `on_hold` (бизнес отложил; «холд» — до уточнения третьей роли). `confirm-stage` доступен только для `accepted`.
+
+| Метод и путь | Тело | Ответ | Кто |
+|---|---|---|---|
+| POST `/api/proposals/{id}/accept` | — | `Proposal` (status `accepted`) | команда отклика (Bearer team), только из `selected` |
+| POST `/api/proposals/{id}/decline` | — | `Proposal` (status `declined`) | команда отклика, из `selected` |
+| POST `/api/proposals/{id}/hold` | — | `Proposal` (status `on_hold`) | бизнес (правила как у select) |
+| GET `/api/proposals/{id}/messages` | — | `{ messages: [{ id, author: "team"\|"business", text, created_at }] }` | команда отклика или бизнес задачи (у задач без контакта — любой в режиме бизнеса) |
+| POST `/api/proposals/{id}/messages` | `{ text }` | `Message` | автор определяется токеном: team → "team"; business → "business"; без токена на задаче без контакта → "business" (демо) |
+
+Чат без realtime: фронт обновляет список при открытии и по кнопке/таймеру 5 с. В `Proposal` добавляется `messages_count: number` и `accepted_at: string|null`. В `/api/me` и `/api/business/me` отклики приходят с этими полями.
